@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'node:path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppConfigModule } from './config/app-config.module';
@@ -20,10 +18,6 @@ import { AdminModule } from './modules/admin/admin.module';
 @Module({
   imports: [
     AppConfigModule,
-    ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'uploads'),
-      serveRoot: '/uploads',
-    }),
     AuthModule,
     PatientsModule,
     DoctorsModule,

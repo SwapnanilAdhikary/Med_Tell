@@ -1,10 +1,9 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { BadRequestException, Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MulterModule } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { randomUUID } from 'node:crypto';
-import * as path from 'node:path';
-import * as fs from 'node:fs';
+import { memoryStorage } from 'multer';
+
+
 import {
   MedicalDocument,
   MedicalDocumentSchema,
@@ -16,7 +15,7 @@ import { VerificationModule } from '../verification/verification.module';
 import { PatientsModule } from '../patients/patients.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+
 
 @Module({
   imports: [
@@ -25,18 +24,26 @@ const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
     ]),
     MulterModule.registerAsync({
       useFactory: () => ({
-        storage: diskStorage({
-          destination: (_req, _file, cb) => {
-            if (!fs.existsSync(UPLOAD_DIR))
-              fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-            cb(null, UPLOAD_DIR);
-          },
-          filename: (_req, file, cb) => {
-            const ext = path.extname(file.originalname);
-            cb(null, `${Date.now()}-${randomUUID()}${ext}`);
-          },
-        }),
-        limits: { fileSize: 10 * 1024 * 1024 },
+        // Never touches disk — the buffer lives in memory for one request.
+        storage: memoryStorage(),
+        fileFilter: (
+          _req: unknown,
+          file: { mimetype: string },
+          cb: (error: Error | null, acceptFile: boolean) => void,
+        ) => {
+          const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+          if (allowed.includes(file.mimetype)) return cb(null, true);
+          // ponytail: rejecting HEIC outright — converting needs a native dep.
+          // Revisit if iPhone uploads become common.
+          cb(
+            new BadRequestException(
+              'Please upload a JPG, PNG or WEBP image of the report.',
+            ),
+            false,
+          );
+        },
+        // base64 inflates by ~33%, and the whole image sits in memory.
+        limits: { fileSize: 5 * 1024 * 1024 },
       }),
     }),
     AiModule,

@@ -265,8 +265,10 @@ RULES:
   }
 
   async analyzeDocument(
-    imagePath: string,
+    image: Buffer,
+    mimeType: string,
     language = 'en',
+    
   ): Promise<Record<string, unknown>> {
     try {
       const completion = await this.client.chat.completions.create({
@@ -297,7 +299,7 @@ Be conservative. Never state a definitive diagnosis.`,
               },
               {
                 type: 'image_url',
-                image_url: { url: this.toDataUrl(imagePath) },
+                image_url: { url: this.toDataUrl(image, mimeType) },
               },
             ],
           },
@@ -368,13 +370,19 @@ Respond with strict JSON: {"title": "...", "body": "full certificate text", "val
     return match ? match[0] : '{}';
   }
 
-  private toDataUrl(path: string): string {
-    const mime = path.endsWith('.png')
-      ? 'image/png'
-      : path.endsWith('.jpg') || path.endsWith('.jpeg')
-        ? 'image/jpeg'
-        : 'image/jpeg';
-    const base64 = fs.readFileSync(path).toString('base64');
-    return `data:${mime};base64,${base64}`;
+  //private toDataUrl(path: string): string {
+   // const mime = path.endsWith('.png')
+    //  ? 'image/png'
+    //  : path.endsWith('.jpg') || path.endsWith('.jpeg')
+      //  ? 'image/jpeg'
+       // : 'image/jpeg';
+   // const base64 = fs.readFileSync(path).toString('base64');
+ //   return `data:${mime};base64,${base64}`;
+  //}
+
+  private toDataUrl(image: Buffer, mimeType: string): string {
+    // MIME comes from multer's file.mimetype, not a filename guess — that's
+    // what fixes .heic photos being mislabelled as JPEG.
+    return `data:${mimeType};base64,${image.toString('base64')}`;
   }
 }

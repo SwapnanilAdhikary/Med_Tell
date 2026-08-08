@@ -34,8 +34,7 @@ export class MedicalDocument {
   @Prop({ trim: true })
   docType?: string;
 
-  @Prop({ required: true, trim: true })
-  filePath: string;
+  
 
   @Prop({
     type: String,
