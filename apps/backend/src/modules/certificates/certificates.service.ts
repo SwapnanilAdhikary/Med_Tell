@@ -289,12 +289,14 @@ export class CertificatesService {
     lineHeight: number,
     font: import('pdf-lib').PDFFont,
   ) {
+    const bottomMargin = 50; // don't draw below this y
     const words = text.split(/\s+/);
     let line = '';
     let cy = y;
     for (const word of words) {
       const test = line ? `${line} ${word}` : word;
       if (font.widthOfTextAtSize(test, 11) > maxWidth) {
+        if (cy < bottomMargin) break; // stop drawing, text won't fit
         page.drawText(line, {
           x,
           y: cy,
@@ -308,7 +310,7 @@ export class CertificatesService {
         line = test;
       }
     }
-    if (line)
+    if (line && cy >= bottomMargin) {
       page.drawText(line, {
         x,
         y: cy,
@@ -316,5 +318,6 @@ export class CertificatesService {
         font,
         color: rgb(0.15, 0.15, 0.15),
       });
+    }
   }
 }

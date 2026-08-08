@@ -38,12 +38,18 @@ export function Uploads() {
     load()
   }, [load])
 
+  const MAX_SIZE = 10 * 1024 * 1024 // 10 MB
+
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     setBusy(true)
     setError('')
     try {
       for (const file of Array.from(files)) {
+        if (file.size > MAX_SIZE) {
+          setError(`${file.name} is too large (max 10 MB)`)
+          return
+        }
         const fd = new FormData()
         fd.append('file', file)
         const doc = await api<{ _id: string }>('/api/documents/upload', {

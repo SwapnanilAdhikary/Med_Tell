@@ -76,6 +76,17 @@ describe('ConversationsService', () => {
       });
       expect(conversation._id).toBe('conv-1');
     });
+
+    it('handles duplicate key race condition gracefully', async () => {
+      const existing = { _id: 'conv-1', patient: 'pat-1' };
+      conversationModel.findOne.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
+      conversationModel.create.mockRejectedValue({ code: 11000 }); // duplicate key
+      conversationModel.findOne.mockReturnValueOnce({ exec: jest.fn().mockResolvedValue(null) });
+      conversationModel.findOne.mockReturnValueOnce({ exec: jest.fn().mockResolvedValue(existing) });
+
+      const result = await service.getOrCreate('pat-1');
+      expect(result).toBe(existing);
+    });
   });
 
   describe('setLanguage', () => {

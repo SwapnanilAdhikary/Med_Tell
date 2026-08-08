@@ -293,7 +293,7 @@ Be conservative. Never state a definitive diagnosis.`,
             content: [
               {
                 type: 'image_url',
-                image_url: { url: this.toDataUrl(imagePath) },
+                image_url: { url: await this.toDataUrl(imagePath) },
               },
             ],
           },
@@ -360,17 +360,34 @@ Respond with strict JSON: {"title": "...", "body": "full certificate text", "val
   }
 
   private extractJson(text: string): string {
-    const match = text.match(/\{[\s\S]*\}/);
-    return match ? match[0] : '{}';
+    // Find the first `{` and match to its closing `}` by counting nesting depth.
+    const start = text.indexOf('{');
+    if (start === -1) return '{}';
+
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      if (text[i] === '}') depth--;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+    // Fallback: try the whole text.
+    return text.slice(start);
   }
 
-  private toDataUrl(path: string): string {
+  private async toDataUrl(path: string): Promise<string> {
     const mime = path.endsWith('.png')
       ? 'image/png'
       : path.endsWith('.jpg') || path.endsWith('.jpeg')
         ? 'image/jpeg'
         : 'image/jpeg';
-    const base64 = fs.readFileSync(path).toString('base64');
-    return `data:${mime};base64,${base64}`;
+    try {
+      const buffer = await fs.promises.readFile(path);
+      const base64 = buffer.toString('base64');
+      return `data:${mime};base64,${base64}`;
+    } catch {
+      throw new Error(`Failed to read image at ${path}`);
+    }
   }
 }

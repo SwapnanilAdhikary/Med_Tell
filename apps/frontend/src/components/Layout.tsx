@@ -100,11 +100,11 @@ export function Layout() {
     const load = async () => {
       try {
         if (user.role === 'doctor') {
-          const [q, v] = await Promise.all([
+          const [summary, q] = await Promise.all([
+            api<{ pending: number }>('/api/verification/summary'),
             api<unknown[]>('/api/appointments/queue'),
-            api<unknown[]>('/api/verification/queue'),
           ])
-          setBadge({ '/doctor/callbacks': q.length, '/doctor/verify': v.length })
+          setBadge({ '/doctor/callbacks': q.length, '/doctor/verify': summary.pending })
         }
       } catch {
         /* ignore */
