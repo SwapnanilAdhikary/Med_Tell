@@ -43,10 +43,12 @@ async function hashPassword(password: string): Promise<string> {
   return `${salt}:${hash}`;
 }
 
+type SeedRole = 'patient' | 'doctor' | 'health_worker';
+
 interface SeedUser {
   phone: string;
   name: string;
-  role: 'patient' | 'doctor';
+  role: SeedRole;
 }
 
 const USERS: SeedUser[] = [
@@ -56,7 +58,22 @@ const USERS: SeedUser[] = [
   { phone: '+919800000001', name: 'Ananya Banerjee', role: 'doctor' },
   { phone: '+919800000002', name: 'Rohan Mehta', role: 'doctor' },
   { phone: '+919800000003', name: 'Sneha Iyer', role: 'doctor' },
+  { phone: '+919700000001', name: 'Anjali Roy', role: 'health_worker' },
 ];
+
+// Coordinates are [lng, lat] and approximate - demo only.
+const WORKERS: Record<string, Record<string, unknown>> = {
+  '+919700000001': {
+    cadre: 'ASHA',
+    workerCode: 'WB-MSD-ASHA-0142',
+    village: 'Beldanga',
+    block: 'Beldanga I',
+    district: 'Murshidabad',
+    state: 'West Bengal',
+    coordinates: [88.25, 23.93],
+    languages: ['bn', 'hi'],
+  },
+};
 
 // ponytail: 1x1 PNG stands in for the scanned report - the demo only needs the
 // file route to serve something valid. Drop real sample scans in uploads/ to
@@ -161,7 +178,7 @@ const CERTIFICATES = [
 async function ensureUser(
   phone: string,
   name: string,
-  role: 'patient' | 'doctor',
+  role: SeedRole,
   userModel: mongoose.Model<any>,
 ) {
   let user = await userModel.findOne({ phone }).exec();
@@ -212,6 +229,23 @@ async function main() {
       verified: Boolean,
     }),
     'doctors',
+  );
+  const healthWorkerModel = mongoose.model(
+    'HealthWorker',
+    new mongoose.Schema({
+      user: mongoose.Schema.Types.ObjectId,
+      name: String,
+      cadre: String,
+      workerCode: String,
+      village: String,
+      block: String,
+      district: String,
+      state: String,
+      coordinates: [Number],
+      languages: [String],
+      active: Boolean,
+    }),
+    'healthworkers',
   );
   const appointmentModel = mongoose.model(
     'Appointment',
@@ -307,6 +341,17 @@ async function main() {
         console.log(`  + patient ${u.name}`);
       }
       patientIds.set(u.phone, patient._id);
+    } else if (u.role === 'health_worker') {
+      const exists = await healthWorkerModel.findOne({ user: user._id }).exec();
+      if (!exists) {
+        await healthWorkerModel.create({
+          user: user._id,
+          name: u.name,
+          active: true,
+          ...WORKERS[u.phone],
+        });
+        console.log(`  + health worker ${u.name}`);
+      }
     } else {
       const d = DOCTORS.find((x) => x.phone === u.phone)!;
       let doctor = await doctorModel.findOne({ user: user._id }).exec();
@@ -440,9 +485,11 @@ async function main() {
   console.log(`  Users: ${await userModel.countDocuments()}`);
   console.log(`  Patients: ${await patientModel.countDocuments()}`);
   console.log(`  Doctors: ${await doctorModel.countDocuments()}`);
+  console.log(`  Health workers: ${await healthWorkerModel.countDocuments()}`);
   console.log(`  Pending verification tasks: ${summary}`);
   console.log('\nAll accounts use password: demo123');
   console.log('  Patient demo: +919876543210  | Doctor demo: +919800000001');
+  console.log('  ASHA worker demo: +919700000001');
 
   await mongoose.disconnect();
 }
