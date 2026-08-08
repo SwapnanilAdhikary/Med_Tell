@@ -41,8 +41,12 @@ export class DoctorsService {
 
   /**
    * Picks the verified doctor best suited to a specialty (as named by the AI
-   * triage summary) and, secondarily, one who speaks the patient's language.
-   * Falls back to General Medicine, then to any verified doctor.
+   * triage summary) and, secondarily, one who speaks the patient's language or
+   * works at the reporting facility. Falls back to General Medicine, then to
+   * any verified doctor.
+   *
+   * Facility is scored, never filtered: pre-filtering would make a facility
+   * with no doctors return null instead of falling back to the whole network.
    *
    * ponytail: no load balancing - add a fewest-open-appointments tie-break when
    * the roster outgrows a handful of doctors.
@@ -50,6 +54,7 @@ export class DoctorsService {
   async findBestMatch(
     specialty?: string,
     language?: string,
+    opts?: { facility?: string | Types.ObjectId },
   ): Promise<DoctorDocument | null> {
     const roster = await this.doctorModel
       .find({ verified: true })
@@ -58,6 +63,7 @@ export class DoctorsService {
     if (roster.length === 0) return null;
 
     const wanted = stem(specialty ?? '');
+    const wantedFacility = opts?.facility ? String(opts.facility) : '';
 
     const score = (doctor: DoctorDocument): number => {
       const own = stem(doctor.specialty ?? '');
@@ -68,6 +74,11 @@ export class DoctorsService {
         points += 20; // General Medicine takes anything unmatched.
       }
       if (language && (doctor.languages ?? []).includes(language)) points += 10;
+      // Above language (10), below the General Medicine fallback (20): at 30 a
+      // local paediatrician would win an adult cardiac case.
+      if (wantedFacility && String(doctor.facility ?? '') === wantedFacility) {
+        points += 15;
+      }
       return points;
     };
 

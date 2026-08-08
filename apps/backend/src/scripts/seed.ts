@@ -58,8 +58,53 @@ const USERS: SeedUser[] = [
   { phone: '+919800000001', name: 'Ananya Banerjee', role: 'doctor' },
   { phone: '+919800000002', name: 'Rohan Mehta', role: 'doctor' },
   { phone: '+919800000003', name: 'Sneha Iyer', role: 'doctor' },
+  { phone: '+919800000004', name: 'Kavita Ghosh', role: 'doctor' },
   { phone: '+919700000001', name: 'Anjali Roy', role: 'health_worker' },
 ];
+
+// Coordinates are [lng, lat] and approximate - demo only.
+const FACILITIES = [
+  {
+    name: 'PHC Beldanga',
+    type: 'PHC',
+    village: 'Beldanga',
+    block: 'Beldanga I',
+    district: 'Murshidabad',
+    state: 'West Bengal',
+    coordinates: [88.25, 23.93],
+    phone: '+913482250101',
+    specialties: ['General Medicine'],
+  },
+  {
+    name: 'CHC Berhampore',
+    type: 'CHC',
+    village: 'Berhampore',
+    block: 'Berhampore',
+    district: 'Murshidabad',
+    state: 'West Bengal',
+    coordinates: [88.25, 24.1],
+    phone: '+913482250202',
+    specialties: ['General Medicine', 'Pediatrics', 'Obstetrics & Gynaecology'],
+  },
+  {
+    name: 'Murshidabad District Hospital',
+    type: 'district-hospital',
+    village: 'Berhampore',
+    block: 'Berhampore',
+    district: 'Murshidabad',
+    state: 'West Bengal',
+    coordinates: [88.27, 24.11],
+    phone: '+913482250303',
+    specialties: ['General Medicine', 'Cardiology', 'Surgery'],
+  },
+];
+
+const DOCTOR_FACILITY: Record<string, string> = {
+  '+919800000001': 'PHC Beldanga',
+  '+919800000002': 'Murshidabad District Hospital',
+  '+919800000003': 'CHC Berhampore',
+  '+919800000004': 'CHC Berhampore',
+};
 
 // Coordinates are [lng, lat] and approximate - demo only.
 const WORKERS: Record<string, Record<string, unknown>> = {
@@ -87,6 +132,12 @@ const DOCTORS = [
   { phone: '+919800000001', title: 'MBBS, MD', specialty: 'General Medicine' },
   { phone: '+919800000002', title: 'MBBS, DM', specialty: 'Cardiology' },
   { phone: '+919800000003', title: 'MBBS, MD', specialty: 'Pediatrics' },
+  // Without her the pregnancy path degrades silently to General Medicine.
+  {
+    phone: '+919800000004',
+    title: 'MBBS, MS',
+    specialty: 'Obstetrics & Gynaecology',
+  },
 ];
 
 const PATIENT_DETAILS: Record<
@@ -226,10 +277,34 @@ async function main() {
       name: String,
       title: String,
       specialty: String,
+      facility: mongoose.Schema.Types.ObjectId,
       verified: Boolean,
     }),
     'doctors',
   );
+  const facilitySchema = new mongoose.Schema({
+    name: String,
+    type: String,
+    village: String,
+    block: String,
+    district: String,
+    state: String,
+    location: {
+      type: { type: String, enum: ['Point'], default: 'Point' },
+      coordinates: [Number],
+    },
+    phone: String,
+    specialties: [String],
+  });
+  facilitySchema.index({ location: '2dsphere' });
+  const facilityModel = mongoose.model(
+    'Facility',
+    facilitySchema,
+    'facilities',
+  );
+  // autoIndex builds asynchronously, so wait for it here or the first $near
+  // after a fresh seed can fail with "unable to find index for $geoNear query".
+  await facilityModel.createIndexes();
   const healthWorkerModel = mongoose.model(
     'HealthWorker',
     new mongoose.Schema({
@@ -314,6 +389,21 @@ async function main() {
     'appnotifications',
   );
 
+  // 0. Facilities - doctors reference them, so they come first
+  const facilityIds = new Map<string, mongoose.Types.ObjectId>();
+  for (const f of FACILITIES) {
+    const { coordinates, ...rest } = f;
+    let facility = await facilityModel.findOne({ name: f.name }).exec();
+    if (!facility) {
+      facility = await facilityModel.create({
+        ...rest,
+        location: { type: 'Point', coordinates },
+      });
+      console.log(`  + facility ${f.name}`);
+    }
+    facilityIds.set(f.name, facility._id);
+  }
+
   // 1. Users + profiles
   const userIds = new Map<string, mongoose.Types.ObjectId>();
   const patientIds = new Map<string, mongoose.Types.ObjectId>();
@@ -361,6 +451,7 @@ async function main() {
           name: u.name,
           title: d.title,
           specialty: d.specialty,
+          facility: facilityIds.get(DOCTOR_FACILITY[u.phone] ?? ''),
           verified: true,
         });
         console.log(`  + doctor Dr. ${u.name}`);
@@ -374,6 +465,19 @@ async function main() {
     { verified: { $ne: true } },
     { $set: { verified: true } },
   );
+
+  // The findOne guard above skips already-seeded doctors, so backfill the
+  // facility link separately or an existing DB never gets one.
+  for (const [phone, facilityName] of Object.entries(DOCTOR_FACILITY)) {
+    const doctorId = doctorIds.get(phone);
+    const facilityId = facilityIds.get(facilityName);
+    if (doctorId && facilityId) {
+      await doctorModel.updateOne(
+        { _id: doctorId, facility: { $ne: facilityId } },
+        { $set: { facility: facilityId } },
+      );
+    }
+  }
 
   // 3. Call-back appointments
   for (const a of APPOINTMENTS) {
@@ -486,6 +590,7 @@ async function main() {
   console.log(`  Patients: ${await patientModel.countDocuments()}`);
   console.log(`  Doctors: ${await doctorModel.countDocuments()}`);
   console.log(`  Health workers: ${await healthWorkerModel.countDocuments()}`);
+  console.log(`  Facilities: ${await facilityModel.countDocuments()}`);
   console.log(`  Pending verification tasks: ${summary}`);
   console.log('\nAll accounts use password: demo123');
   console.log('  Patient demo: +919876543210  | Doctor demo: +919800000001');
