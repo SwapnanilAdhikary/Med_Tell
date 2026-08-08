@@ -292,6 +292,10 @@ Be conservative. Never state a definitive diagnosis.`,
             role: 'user',
             content: [
               {
+                type: 'text',
+                text: 'Read this medical document and extract every value you can see. Respond with the JSON object described above.',
+              },
+              {
                 type: 'image_url',
                 image_url: { url: this.toDataUrl(imagePath) },
               },
