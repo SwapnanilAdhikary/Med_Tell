@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Patient data - uploaded medical records and generated certificate PDFs.
+# Never commit these; the seed regenerates its placeholders.
+apps/backend/uploads/
+apps/backend/certificates/
+
+# Throwaway probe/debug scripts - never committed
+scratch/
+
+# Misc
+.turbo/
+.temp/
