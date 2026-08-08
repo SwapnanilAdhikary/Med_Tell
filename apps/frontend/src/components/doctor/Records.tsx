@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, openAuthedFile } from '../../api/client'
+import { api } from '../../api/client'
 import type { CallSession, MedicalDocument } from '../../api/types'
 
 function PatientName({ v }: { v: { _id: string; name: string } | string }) {
@@ -84,17 +84,7 @@ export function Records() {
                   <div className="item-desc">{d.aiFindings.summary}</div>
                 )}
               </div>
-              <div className="item-actions">
-                {/* A plain link can't send the bearer token, so fetch the file. */}
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() =>
-                    openAuthedFile(`/api/documents/${d._id}/file`).catch(() => {})
-                  }
-                >
-                  View
-                </button>
-              </div>
+              
             </div>
           ))}
         </div>

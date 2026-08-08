@@ -11,8 +11,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
 import * as crypto from 'node:crypto';
 import * as mongoose from 'mongoose';
-import * as path from 'node:path';
-import * as fs from 'node:fs';
 import 'dotenv/config';
 
 const SCRYPT_KEYLEN = 64;
@@ -61,6 +59,7 @@ const USERS: SeedUser[] = [
   { phone: '+919800000004', name: 'Kavita Ghosh', role: 'doctor' },
   { phone: '+919700000001', name: 'Anjali Roy', role: 'health_worker' },
 ];
+
 
 // Coordinates are [lng, lat] and approximate - demo only.
 const FACILITIES = [
@@ -342,7 +341,6 @@ async function main() {
       mimeType: String,
       size: Number,
       docType: String,
-      filePath: String,
       status: String,
       aiFindings: mongoose.Schema.Types.Mixed,
     }),
@@ -498,25 +496,19 @@ async function main() {
   }
 
   // 3. Documents + verification tasks
-  const uploadDir = path.resolve('uploads');
-  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
 
   for (const d of DOCUMENTS) {
     const pid = patientIds.get(d.patient)!;
     const exists = await documentModel.findOne({ filename: d.filename }).exec();
     if (!exists) {
-      // Write a real (placeholder) file so GET /documents/:id/file works in the
-      // demo instead of throwing ENOENT.
-      const filePath = path.join('uploads', d.filename);
-      fs.writeFileSync(path.resolve(filePath), PLACEHOLDER_PNG);
-
+      
       const doc = await documentModel.create({
         patient: pid,
         filename: d.filename,
         mimeType: 'image/png',
-        size: PLACEHOLDER_PNG.length,
+        size: 0,
         docType: d.docType,
-        filePath,
         status: 'awaiting-doctor',
         aiFindings: d.aiFindings,
       });

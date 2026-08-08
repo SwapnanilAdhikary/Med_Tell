@@ -81,6 +81,85 @@ export class ChatService {
     };
   }
 
+
+
+  /**
+   * A report uploaded from the chat screen. Goes through the same analyze path
+   * as the Reports screen (image never stored), then lands in the conversation
+   * as an attachment so the agent can talk about it.
+   */
+  async sendDocument(patientId: string, file: Express.Multer.File) {
+    const patient = await this.patientsService.findById(patientId);
+    const conversation = await this.conversationsService.getOrCreate(patientId);
+    const language = conversation.language ?? patient.language ?? 'en';
+
+    // Throws 422 if the AI read nothing — the patient sees that in chat.
+    const doc = await this.documentsService.analyzeUpload(
+      patientId,
+      file,
+      language,
+    );
+    const findings = doc.aiFindings;
+
+    await this.conversationsService.addMessage(
+      conversation._id,
+      'user',
+      `I've uploaded my report: ${doc.filename}`,
+      [
+        {
+          kind: 'medical-document',
+          id: doc._id.toString(),
+          name: doc.filename,
+          mimeType: doc.mimeType,
+        },
+      ],
+    );
+
+    const history = await this.conversationsService.history(conversation._id);
+    const context: PatientContext = {
+      name: patient.name,
+      language,
+      allergies: patient.healthProfile?.allergies,
+      conditions: patient.healthProfile?.conditions,
+      medications: patient.healthProfile?.medications,
+    };
+
+    const prompt = `The patient just uploaded a medical report called "${doc.filename}". The AI analysis found:
+Summary: ${findings?.summary ?? 'none'}
+Abnormal findings: ${(findings?.abnormalFindings ?? []).join('; ') || 'none'}
+Confidence: ${findings?.confidence ?? 0}
+
+Acknowledge the report, explain the findings in plain language, and remind them a doctor still has to verify it. Offer to book a consultation if anything looks abnormal.`;
+
+    const result = await this.aiService.runAgent(
+      context,
+      history.slice(0, -1),
+      prompt,
+      (name, args) => this.executeAction(patientId, name, args),
+    );
+
+    const actions = result.actions.map((a) => ({
+      name: a.name,
+      args: a.args,
+      result: a.result,
+    }));
+
+    await this.conversationsService.addMessage(
+      conversation._id,
+      'assistant',
+      result.reply,
+      [],
+      { actions },
+    );
+
+    return {
+      reply: result.reply,
+      actions,
+      document: doc,
+      conversationId: conversation._id.toString(),
+    };
+  }
+
   async getMessages(patientId: string) {
     const conversation = await this.conversationsService.getOrCreate(patientId);
     const messages = await this.conversationsService.listMessages(

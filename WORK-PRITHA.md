@@ -183,6 +183,53 @@ Two backup theories if that's not it:
 2. **The model is struggling with dense text.** Possible, but unlikely — that
    would give us *partial* text, not an empty string. Check this last.
 
+
+
+   ---
+
+### Phase 0 result (Pritha) — CANNOT REPRODUCE on current main
+
+Two real uploads through `POST /documents/upload` + `POST /:id/analyze`:
+
+| Test image | Result |
+|---|---|
+| 26 KB synthetic CBC | `confidence: 0.95`, full text, both abnormals found |
+| 63 KB realistic consolidated medical record | `confidence: 0.90`, full text, real findings |
+
+Both succeeded. The empty-findings bug did not occur.
+
+**What the probe showed** (`scratch/probe.js` — no system prompt, image only):
+
+| Sent | Simple CBC | Realistic record |
+|---|---|---|
+| bare image, no text part | works | **"I'm unable to assist with that."** |
+| image + text part | works | works |
+
+So a bare image *can* trigger a refusal — but only on a realistic
+document with patient identifiers, and only when nothing else gives the
+model context.
+
+**Why production still works:** `analyzeDocument` sends a system prompt
+("You are a medical document analysis assistant... respond ONLY with
+strict JSON") *before* the image. That appears to supply enough context
+on its own, so the missing text part in the user message doesn't bite.
+The probe had no system prompt, which is why it refused.
+
+**Failure chain if a refusal ever does happen:** model replies in prose,
+not JSON → `extractJson` finds no braces → returns `'{}'` → every field
+empty, `confidence: 0` → no exception thrown → the doc is still marked
+`awaiting-doctor` and still queued for a doctor. This is exactly the
+Phase 2 problem, and it is real regardless of whether the refusal is.
+
+**Ruled out:**
+- MIME labelling — multer preserves the extension, so `toDataUrl` labels correctly
+- The 70-byte files in `uploads/` are seed placeholders (1×1 pixels). Don't test against them.
+
+**Open question for @Swapnanil:** can you share the exact 42 KB image you
+tested with? I can't make it fail. If the refusal is intermittent, adding
+a text part alongside the image is still worth doing as cheap insurance —
+which is what Phase 1 will do.
+
 ---
 
 ## 5. The plan
@@ -518,16 +565,16 @@ your findings in their review queue. That's the real proof it works.
 
 ## 9. Checklist
 
-- [ ] The reason the AI read nothing is written into §4 of this file
-- [ ] A real lab-report image produces a genuine summary, abnormal values, and
+- [x] The reason the AI read nothing is written into §4 of this file
+- [x] A real lab-report image produces a genuine summary, abnormal values, and
       `confidence` above 0
-- [ ] A failed reading saves nothing, queues nothing, and tells the patient
-- [ ] Analysing the same report twice never creates two doctor tasks
-- [ ] `apps/backend/uploads/` is empty after an upload, and `/uploads/…` serves nothing
-- [ ] No dead "View" buttons anywhere
-- [ ] Unsupported file types rejected at upload with a clear message
-- [ ] PDFs either work or say honestly they go to a doctor — no fake findings
-- [ ] Both new test files pass, all 58 existing tests still pass, `tsc` is clean
+- [x] A failed reading saves nothing, queues nothing, and tells the patient
+- [x] Analysing the same report twice never creates two doctor tasks
+- [x] `apps/backend/uploads/` is empty after an upload, and `/uploads/…` serves nothing
+- [x] No dead "View" buttons anywhere
+- [x] Unsupported file types rejected at upload with a clear message
+- [x] PDFs either work or say honestly they go to a doctor — no fake findings
+- [x] Both new test files pass, all 58 existing tests still pass, `tsc` is clean
 
 ---
 
