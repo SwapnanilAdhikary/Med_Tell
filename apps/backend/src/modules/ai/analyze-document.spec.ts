@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { AiService } from './ai.service';
@@ -84,5 +85,15 @@ describe('AiService.analyzeDocument', () => {
     // silent failure DocumentsService.analyzeUpload now catches.
     expect(out.text).toBeUndefined();
     expect(out.confidence).toBeUndefined();
+  });
+
+  it('throws instead of calling the model when the image data is empty', async () => {
+    const openai = await build(FINDINGS);
+
+    await expect(
+      service.analyzeDocument(Buffer.alloc(0), 'image/png'),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(openai.create).not.toHaveBeenCalled();
   });
 });

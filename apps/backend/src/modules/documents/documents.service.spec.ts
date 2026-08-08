@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
-import { UnprocessableEntityException } from '@nestjs/common';
+import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { MedicalDocument } from './schemas/medical-document.schema';
 import { AiService } from '../ai/ai.service';
@@ -29,12 +29,12 @@ function fakeFile(mimetype = 'image/png'): Express.Multer.File {
 
 describe('DocumentsService.analyzeUpload', () => {
   let service: DocumentsService;
-  let aiService: { analyzeDocument: jest.Mock };
+  let aiService: { analyzeDocument: jest.Mock; analyzePdf: jest.Mock };
   let verificationService: { create: jest.Mock };
   let documentModel: { create: jest.Mock };
 
   beforeEach(async () => {
-    aiService = { analyzeDocument: jest.fn() };
+    aiService = { analyzeDocument: jest.fn(), analyzePdf: jest.fn() };
     verificationService = { create: jest.fn().mockResolvedValue({}) };
     documentModel = {
       create: jest.fn(async (doc: Record<string, unknown>) => ({
@@ -105,5 +105,100 @@ describe('DocumentsService.analyzeUpload', () => {
 
     const saved = documentModel.create.mock.calls[0][0] as Record<string, unknown>;
     expect(saved.filePath).toBeUndefined();
+  });
+
+  it('sends a PDF to the text path, never to the vision model', async () => {
+    aiService.analyzePdf.mockResolvedValue(GOOD_FINDINGS);
+
+    await service.analyzeUpload('patient-1', fakeFile('application/pdf'));
+
+    expect(aiService.analyzePdf).toHaveBeenCalledTimes(1);
+    expect(aiService.analyzeDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe('DocumentsService.findOwned', () => {
+  let service: DocumentsService;
+
+  beforeEach(async () => {
+    const documentModel = {
+      findById: jest.fn(() => ({
+        exec: async () => ({ _id: 'doc-1', patient: 'patient-1' }),
+      })),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DocumentsService,
+        { provide: getModelToken(MedicalDocument.name), useValue: documentModel },
+        { provide: AiService, useValue: {} },
+        { provide: VerificationService, useValue: {} },
+        { provide: PatientsService, useValue: {} },
+        { provide: NotificationsService, useValue: {} },
+      ],
+    }).compile();
+
+    service = module.get(DocumentsService);
+  });
+
+  it('gives the owning patient their own report', async () => {
+    const doc = await service.findOwned('doc-1', 'patient-1');
+    expect(doc._id).toBe('doc-1');
+  });
+
+  // 404 not 403 — we don't confirm the record exists to a stranger.
+  it("refuses another patient's report with NotFoundException", async () => {
+    await expect(service.findOwned('doc-1', 'patient-2')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('lets a doctor (no patient id) read any report', async () => {
+    const doc = await service.findOwned('doc-1');
+    expect(doc._id).toBe('doc-1');
+  });
+});
+
+describe('DocumentsService.approve', () => {
+  let service: DocumentsService;
+  let notificationsService: { create: jest.Mock };
+
+  beforeEach(async () => {
+    const documentModel = {
+      findByIdAndUpdate: jest.fn(() => ({
+        exec: async () => ({
+          _id: { toString: () => 'doc-1' },
+          patient: 'patient-1',
+          filename: 'report.png',
+        }),
+      })),
+    };
+    notificationsService = { create: jest.fn() };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DocumentsService,
+        { provide: getModelToken(MedicalDocument.name), useValue: documentModel },
+        { provide: AiService, useValue: {} },
+        { provide: VerificationService, useValue: {} },
+        {
+          provide: PatientsService,
+          useValue: {
+            findById: jest.fn().mockResolvedValue({ user: 'user-1' }),
+          },
+        },
+        { provide: NotificationsService, useValue: notificationsService },
+      ],
+    }).compile();
+
+    service = module.get(DocumentsService);
+  });
+
+  it('notifies the owning patient when a doctor approves a report', async () => {
+    await service.approve('doc-1', 'doctor-1');
+
+    expect(notificationsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'user-1', type: 'document' }),
+    );
   });
 });

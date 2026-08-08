@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
 import OpenAI from 'openai';
@@ -268,8 +269,12 @@ RULES:
     image: Buffer,
     mimeType: string,
     language = 'en',
-    
   ): Promise<Record<string, unknown>> {
+    if (!image?.length) {
+      throw new BadRequestException(
+        'The uploaded image was empty. Please try uploading it again.',
+      );
+    }
     try {
       const completion = await this.client.chat.completions.create({
         model: this.visionModel,
