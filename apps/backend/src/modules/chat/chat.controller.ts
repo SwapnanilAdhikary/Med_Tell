@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsString } from 'class-validator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import type { AuthUser } from '../../common/guards/jwt-auth.guard';
@@ -26,6 +36,16 @@ export class ChatController {
   @Roles('patient')
   async message(@CurrentUser() user: AuthUser, @Body() body: MessageBody) {
     return this.chatService.sendMessage(user.patientId!, body.message);
+  }
+
+  @Post('document')
+  @Roles('patient')
+  @UseInterceptors(FileInterceptor('file'))
+  async document(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.chatService.sendDocument(user.patientId!, file);
   }
 
   @Get('history')
