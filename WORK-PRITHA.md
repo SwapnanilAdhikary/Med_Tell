@@ -565,16 +565,16 @@ your findings in their review queue. That's the real proof it works.
 
 ## 9. Checklist
 
-- [ ] The reason the AI read nothing is written into §4 of this file
-- [ ] A real lab-report image produces a genuine summary, abnormal values, and
+- [x] The reason the AI read nothing is written into §4 of this file
+- [x] A real lab-report image produces a genuine summary, abnormal values, and
       `confidence` above 0
-- [ ] A failed reading saves nothing, queues nothing, and tells the patient
-- [ ] Analysing the same report twice never creates two doctor tasks
-- [ ] `apps/backend/uploads/` is empty after an upload, and `/uploads/…` serves nothing
-- [ ] No dead "View" buttons anywhere
-- [ ] Unsupported file types rejected at upload with a clear message
-- [ ] PDFs either work or say honestly they go to a doctor — no fake findings
-- [ ] Both new test files pass, all 58 existing tests still pass, `tsc` is clean
+- [x] A failed reading saves nothing, queues nothing, and tells the patient
+- [x] Analysing the same report twice never creates two doctor tasks
+- [x] `apps/backend/uploads/` is empty after an upload, and `/uploads/…` serves nothing
+- [x] No dead "View" buttons anywhere
+- [x] Unsupported file types rejected at upload with a clear message
+- [x] PDFs either work or say honestly they go to a doctor — no fake findings
+- [x] Both new test files pass, all 58 existing tests still pass, `tsc` is clean
 
 ---
 
