@@ -34,11 +34,14 @@ export class DocumentsService {
   ) {
     // The image lives in file.buffer and is never written to disk — we keep
     // only what the AI read. See ARCHITECTURE.md §5C.
-    const findings = (await this.aiService.analyzeDocument(
-      file.buffer,
-      file.mimetype,
-      language,
-    )) as unknown as AiFindings;
+   const isPdf = file.mimetype === 'application/pdf';
+    const findings = (await (isPdf
+      ? this.aiService.analyzePdf(file.buffer, language)
+      : this.aiService.analyzeDocument(
+          file.buffer,
+          file.mimetype,
+          language,
+        ))) as unknown as AiFindings;
 
     // A refusal parses to {}. Save nothing, queue nothing, tell the patient.
     if (!findings?.text?.trim() && !findings?.confidence) {

@@ -31,13 +31,18 @@ import { NotificationsModule } from '../notifications/notifications.module';
           file: { mimetype: string },
           cb: (error: Error | null, acceptFile: boolean) => void,
         ) => {
-          const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+          const allowed = [
+            'image/png',
+            'image/jpeg',
+            'image/webp',
+            'application/pdf',
+          ];
           if (allowed.includes(file.mimetype)) return cb(null, true);
           // ponytail: rejecting HEIC outright — converting needs a native dep.
           // Revisit if iPhone uploads become common.
           cb(
             new BadRequestException(
-              'Please upload a JPG, PNG or WEBP image of the report.',
+              'Please upload a JPG, PNG, WEBP or PDF of the report.',
             ),
             false,
           );

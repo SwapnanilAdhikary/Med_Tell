@@ -88,12 +88,12 @@ export function Uploads() {
           id="upload-input"
           type="file"
           multiple
-          accept="image/png,image/jpeg,image/webp"
+          accept="image/png,image/jpeg,image/webp,application/pdf"
           style={{ display: 'none' }}
           onChange={(e) => handleFiles(e.target.files)}
         />
         <div className="dropzone-title">{busy ? 'Analyzing…' : 'Drag & drop your report here'}</div>
-        <div className="dropzone-sub">or click to browse · JPG, PNG, WEBP · max 5MB</div>
+        <div className="dropzone-sub">or click to browse · JPG, PNG, WEBP, PDF · max 5MB</div>
         {error && <div style={{ color: 'var(--danger)', marginTop: 8, fontSize: 13 }}>{error}</div>}
       </div>
 
