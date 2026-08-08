@@ -151,6 +151,83 @@ export interface ChatMessage {
   createdAt: string
 }
 
+export type Urgency = 'routine' | 'semi-urgent' | 'urgent' | 'emergency'
+
+export interface HealthWorker {
+  _id: string
+  name: string
+  cadre: 'ASHA' | 'ANM'
+  workerCode?: string
+  village?: string
+  block?: string
+  district?: string
+  state?: string
+  coordinates?: number[]
+  languages: string[]
+  active: boolean
+}
+
+export interface Facility {
+  _id: string
+  name: string
+  type: 'PHC' | 'CHC' | 'sub-centre' | 'district-hospital'
+  village?: string
+  district?: string
+  phone?: string
+}
+
+export interface FieldReportVitals {
+  temperatureC?: number
+  spo2?: number
+  systolic?: number
+  diastolic?: number
+  pulse?: number
+  respRate?: number
+  weightKg?: number
+  glucoseMgDl?: number
+}
+
+export interface FieldReport {
+  _id: string
+  worker: string
+  patient: { _id: string; name: string } | string
+  channel: 'voice' | 'web'
+  language: string
+  rawTranscript?: string
+  extraction: {
+    symptoms: string[]
+    vitals: FieldReportVitals
+    duration?: string
+    trend?: string
+    urgency?: Urgency
+    suspectedCondition?: string
+    suggestedSpecialty?: string
+    pregnancyStatus?: boolean
+    ageMonths?: number
+    gender?: string
+    dangerSigns: string[]
+    redFlags: string[]
+    summary?: string
+    confidence?: number
+  }
+  location: {
+    /** GeoJSON order: [lng, lat]. */
+    point?: { type: 'Point'; coordinates: number[] }
+    source: 'gps' | 'assigned' | 'spoken'
+    accuracyM?: number
+    village?: string
+    block?: string
+    district?: string
+  }
+  facility?: Facility | string
+  appointment?: string
+  matchedDoctor?: { name: string; specialty: string; title?: string }
+  status: 'extracting' | 'submitted' | 'routed' | 'failed'
+  aiError?: string
+  routingError?: string
+  createdAt: string
+}
+
 export interface AppNotification {
   _id: string
   title: string

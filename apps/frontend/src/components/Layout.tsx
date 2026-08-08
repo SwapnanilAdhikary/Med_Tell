@@ -137,7 +137,12 @@ export function Layout() {
     ],
     doctor: doctorNav,
     admin: doctorNav,
-    health_worker: [{ to: '/field', label: 'New report', icon: <ClipboardIcon /> }],
+    health_worker: [
+      { to: '/field', label: 'New report', icon: <ClipboardIcon /> },
+      { to: '/field/reports', label: 'My reports', icon: <FileIcon /> },
+      { to: '/field/map', label: 'Map', icon: <MapPinIcon /> },
+      { to: '/field/profile', label: 'Profile', icon: <UserIcon /> },
+    ],
   }
   const navItems = NAV[user.role] ?? []
 
@@ -217,6 +222,9 @@ const DocIcon = () => (
 )
 const UserIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+)
+const MapPinIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="3" /></svg>
 )
 const ClipboardIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="2" width="8" height="4" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M9 12h6M9 16h4" /></svg>

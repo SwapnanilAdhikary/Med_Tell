@@ -295,6 +295,28 @@ describe('FieldReportsService', () => {
       expect(report.appointment).toBe('appt-1');
     });
 
+    it('denormalises the matched doctor so the worker screens need no populate', async () => {
+      const report = await service.submit('worker-1', input());
+
+      expect(report.matchedDoctor).toEqual({
+        name: 'Ananya Banerjee',
+        specialty: 'General Medicine',
+        title: undefined,
+      });
+    });
+
+    it('leaves matchedDoctor unset when nobody was matched', async () => {
+      appointmentsService.book.mockResolvedValue({
+        appointment: { _id: 'appt-1' },
+        doctor: null,
+      });
+
+      const report = await service.submit('worker-1', input());
+
+      expect(report.matchedDoctor).toBeUndefined();
+      expect(report.status).toBe('routed');
+    });
+
     it('leaves status failed and returns normally when book() throws', async () => {
       appointmentsService.book.mockRejectedValue(new Error('roster empty'));
 
