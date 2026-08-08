@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -42,6 +53,16 @@ class GeoDto {
   @Min(0)
   @Max(100_000)
   accuracyM?: number;
+
+  /**
+   * The worker tapped the map instead of using a device fix. The only
+   * client-settable part of location.source, and it can only ever weaken the
+   * claim: the server still refuses to be told 'assigned' or 'spoken', which
+   * are the values it fabricates itself.
+   */
+  @IsOptional()
+  @IsBoolean()
+  picked?: boolean;
 }
 
 /** Real ranges, so a fat-fingered entry 400s instead of reaching a doctor. */
@@ -130,6 +151,23 @@ export class FieldReportsController {
   @Roles('health_worker')
   create(@CurrentUser() user: AuthUser, @Body() body: CreateFieldReportDto) {
     return this.fieldReportsService.submit(user.workerId, body);
+  }
+
+  /** Declared before ':id' or Nest would route "transcribe" into the id param. */
+  @Post('transcribe')
+  @Roles('health_worker')
+  @UseInterceptors(FileInterceptor('audio'))
+  transcribe(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() audio: Express.Multer.File | undefined,
+    @Body() body: { language?: string },
+  ) {
+    if (!audio) throw new BadRequestException('No audio was uploaded');
+    return this.fieldReportsService.transcribe(
+      user.workerId,
+      audio.path,
+      body.language,
+    );
   }
 
   @Get('mine')

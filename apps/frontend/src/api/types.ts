@@ -174,6 +174,25 @@ export interface Facility {
   village?: string
   district?: string
   phone?: string
+  location?: { type: 'Point'; coordinates: number[] }
+}
+
+/** Community-mapped from OpenStreetMap - unverified, often without a phone. */
+export interface PublicFacility {
+  osmId: string
+  name: string
+  kind: 'hospital' | 'clinic' | 'doctors' | 'pharmacy'
+  lat: number
+  lng: number
+  phone?: string
+  source: 'osm'
+}
+
+export interface PublicFacilityResult {
+  facilities: PublicFacility[]
+  /** 'unavailable' means OpenStreetMap did not answer, not that none exist. */
+  status: 'ok' | 'unavailable'
+  radiusM: number
 }
 
 export interface FieldReportVitals {
@@ -213,7 +232,7 @@ export interface FieldReport {
   location: {
     /** GeoJSON order: [lng, lat]. */
     point?: { type: 'Point'; coordinates: number[] }
-    source: 'gps' | 'assigned' | 'spoken'
+    source: 'gps' | 'picked' | 'assigned' | 'spoken'
     accuracyM?: number
     village?: string
     block?: string
@@ -226,6 +245,17 @@ export interface FieldReport {
   aiError?: string
   routingError?: string
   createdAt: string
+}
+
+export interface FieldNote {
+  _id: string
+  title: string
+  body: string
+  point?: { type: 'Point'; coordinates: number[] }
+  village?: string
+  pinned: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface AppNotification {
