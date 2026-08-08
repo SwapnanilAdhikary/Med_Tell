@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useSearchParams, Navigate } from 'react-router-dom'
 import { useAuth } from '../store/auth'
+import { homeFor } from '../roles'
 
 export function Login() {
   const [params] = useSearchParams()
@@ -16,8 +17,12 @@ export function Login() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  if (user) {
-    return <Navigate to={user.role === 'doctor' ? '/doctor' : '/chat'} replace />
+  // No worker button here on purpose: workers are provisioned and seeded, not
+  // self-registered, so the register payload stays patient|doctor.
+  // homeFor returns /login for a role with no workspace; navigating there from
+  // here would be a redirect to ourselves, so fall through to the form instead.
+  if (user && homeFor(user.role) !== '/login') {
+    return <Navigate to={homeFor(user.role)} replace />
   }
 
   const submit = async (e: React.FormEvent) => {
