@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Appointment } from './schemas/appointment.schema';
@@ -161,16 +165,20 @@ export class AppointmentsService {
 
   async assign(doctorId: string | Types.ObjectId, appointmentId: string) {
     const appointment = await this.appointmentModel
-      .findByIdAndUpdate(
-        appointmentId,
-        { doctor: doctorId, status: 'assigned' },
-        { new: true },
-      )
+      .findById(appointmentId)
       .exec();
     if (!appointment) throw new NotFoundException('Appointment not found');
+    if (appointment.status !== 'requested') {
+      throw new BadRequestException('This case has already been claimed');
+    }
+
+    appointment.doctor = doctorId as Types.ObjectId;
+    appointment.status = 'assigned';
+    await appointment.save();
 
     const doctor = await this.doctorsService.findById(doctorId).catch(() => null);
     const patient = await this.patientsService.findById(appointment.patient);
+
     await this.notificationsService.create({
       user: patient.user,
       title: 'Your doctor is confirmed',

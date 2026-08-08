@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  NotFoundException,
   Param,
   Res,
   StreamableFile,
@@ -43,9 +44,13 @@ export class CertificatesController {
       id,
       user.role === 'patient' ? user.patientId! : undefined,
     );
-    return new StreamableFile(createReadStream(filePath), {
-      type: 'application/pdf',
-      disposition: `inline; filename="certificate-${id}.pdf"`,
-    });
+    try {
+      return new StreamableFile(createReadStream(filePath), {
+        type: 'application/pdf',
+        disposition: `inline; filename="certificate-${id}.pdf"`,
+      });
+    } catch {
+      throw new NotFoundException('Certificate PDF not found on disk');
+    }
   }
 }

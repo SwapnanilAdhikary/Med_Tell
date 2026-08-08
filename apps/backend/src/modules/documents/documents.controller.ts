@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Post,
   UploadedFile,
@@ -78,9 +79,13 @@ export class DocumentsController {
       id,
       user.role === 'patient' ? user.patientId! : undefined,
     );
-    return new StreamableFile(createReadStream(doc.filePath), {
-      type: doc.mimeType ?? 'application/octet-stream',
-      disposition: `inline; filename="${encodeURIComponent(doc.filename)}"`,
-    });
+    try {
+      return new StreamableFile(createReadStream(doc.filePath), {
+        type: doc.mimeType ?? 'application/octet-stream',
+        disposition: `inline; filename="${encodeURIComponent(doc.filename)}"`,
+      });
+    } catch {
+      throw new NotFoundException('Document file not found on disk');
+    }
   }
 }
