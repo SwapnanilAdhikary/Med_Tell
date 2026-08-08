@@ -26,6 +26,14 @@ export class Doctor {
   @Prop({ type: [Number], default: [] })
   availability: number[];
 
+  /**
+   * One-sided on purpose: no `doctors[]` array on Facility. findBestMatch
+   * already loads the whole doctor doc, so proximity costs no extra query, and
+   * there are no transactions anywhere in this repo to keep two lists in step.
+   */
+  @Prop({ type: Types.ObjectId, ref: 'Facility' })
+  facility?: Types.ObjectId;
+
   @Prop({ default: true })
   verified: boolean;
 
