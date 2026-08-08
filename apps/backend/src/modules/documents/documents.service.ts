@@ -3,6 +3,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -47,12 +48,18 @@ export class DocumentsService {
   async analyze(id: string, language = 'en', patientId?: string) {
     const doc = await this.findOwned(id, patientId);
 
+    // Idempotent: if we already have findings, don't re-run the AI and
+    // don't queue a second task for the same document.
+    if (doc.aiFindings && doc.status !== 'pending') {
+      return doc;
+    }
+
     if (doc.mimeType?.startsWith('application/pdf')) {
       doc.aiFindings = {
         docType: 'other',
         text: 'PDF documents require manual review.',
         summary:
-          'This is a PDF document. AI reading of PDFs is limited; a doctor will review it.',
+          'This is a PDF document. AI reading of PDFs is limited;a doctor will review it.',
         abnormalFindings: [],
         recommendations: [
           'Please upload a clear image (JPG/PNG) of the report for AI analysis.',
@@ -67,7 +74,18 @@ export class DocumentsService {
         doc.filePath,
         language,
       )) as unknown as AiFindings;
+
+      // The AI can politely return nothing (a refusal parses to {}).
+      // Treat that as a failure: save nothing, queue nothing, tell the patient.
+      if (!findings?.text?.trim() && !findings?.confidence) {
+        throw new UnprocessableEntityException(
+          "We couldn't read that document. Please upload a clearer photo of the report and try again.",
+        );
+      }
+
       doc.aiFindings = { ...findings, language };
+      doc.status = 'ai-reviewed';
+      await doc.save();
     }
 
     doc.status = 'awaiting-doctor';
