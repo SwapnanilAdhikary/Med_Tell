@@ -1,6 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './store/auth'
+import { homeFor } from './roles'
 import { Layout } from './components/Layout'
 import { Chat } from './components/Chat'
 import { Uploads } from './components/Uploads'
@@ -13,6 +15,15 @@ import { Verification } from './components/doctor/Verification'
 import { Records } from './components/doctor/Records'
 import { Landing } from './components/Landing'
 import { Login } from './components/Login'
+import { NewReport } from './components/field/NewReport'
+import { MyReports } from './components/field/MyReports'
+import { ReportDetail } from './components/field/ReportDetail'
+import { WorkerProfile } from './components/field/WorkerProfile'
+
+// mapbox-gl is ~1.8MB. Split out so patients and doctors never download it.
+const FieldMap = lazy(() =>
+  import('./components/field/FieldMap').then((m) => ({ default: m.FieldMap })),
+)
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -21,16 +32,38 @@ function Protected({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-function PatientRoutes() {
-  const { user } = useAuth()
-  if (user?.role !== 'patient') return <Navigate to="/doctor" replace />
-  return <Layout />
+function EmptyPage({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="content">
+      <div className="card">
+        <div className="empty-state">
+          <div className="empty-title">{title}</div>
+          <div>{children}</div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-function DoctorRoutes() {
-  const { user } = useAuth()
-  if (user?.role !== 'doctor') return <Navigate to="/chat" replace />
-  return <Layout />
+function RequireRole({ roles }: { roles: string[] }) {
+  const { user, logout } = useAuth()
+  const location = useLocation()
+  if (!user) return <Navigate to="/login" replace />
+  if (roles.includes(user.role)) return <Layout />
+
+  if (homeFor(user.role) === location.pathname) {
+    return (
+      <EmptyPage title="No workspace for this account">
+        The <span className="mono">{user.role}</span> role has no screens yet.
+        <div>
+          <button className="btn btn-secondary btn-sm" style={{ marginTop: 14 }} onClick={logout}>
+            Sign out
+          </button>
+        </div>
+      </EmptyPage>
+    )
+  }
+  return <Navigate to={homeFor(user.role)} replace />
 }
 
 function App() {
@@ -43,7 +76,7 @@ function App() {
           <Route
             element={
               <Protected>
-                <PatientRoutes />
+                <RequireRole roles={['patient']} />
               </Protected>
             }
           >
@@ -56,7 +89,7 @@ function App() {
           <Route
             element={
               <Protected>
-                <DoctorRoutes />
+                <RequireRole roles={['doctor', 'admin']} />
               </Protected>
             }
           >
@@ -64,6 +97,26 @@ function App() {
             <Route path="/doctor/callbacks" element={<CallBacks />} />
             <Route path="/doctor/verify" element={<Verification />} />
             <Route path="/doctor/records" element={<Records />} />
+          </Route>
+          <Route
+            element={
+              <Protected>
+                <RequireRole roles={['health_worker']} />
+              </Protected>
+            }
+          >
+            <Route path="/field" element={<NewReport />} />
+            <Route path="/field/reports" element={<MyReports />} />
+            <Route path="/field/reports/:id" element={<ReportDetail />} />
+            <Route
+              path="/field/map"
+              element={
+                <Suspense fallback={<div className="loading">Loading the map…</div>}>
+                  <FieldMap />
+                </Suspense>
+              }
+            />
+            <Route path="/field/profile" element={<WorkerProfile />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

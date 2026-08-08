@@ -319,7 +319,22 @@ export class CallsService {
     if (!phone) return null;
 
     const user = await this.authService.findByPhone(phone);
-    if (!user || user.role !== 'patient') return null;
+    if (!user) {
+      // An unknown number is a first-time caller, not a dropped call: give them
+      // a shadow patient record so the triage still reaches a doctor.
+      try {
+        const { patientId } =
+          await this.authService.findOrCreatePatientByPhone(phone);
+        this.logger.log(`Created a shadow patient for caller ${phone}.`);
+        return patientId;
+      } catch (error) {
+        this.logger.warn(
+          `Could not create a patient for caller ${phone}: ${(error as Error).message}`,
+        );
+        return null;
+      }
+    }
+    if (user.role !== 'patient') return null;
 
     const patientId = await this.authService.patientIdForUser(
       user._id.toString(),

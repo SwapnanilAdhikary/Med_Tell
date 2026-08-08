@@ -21,6 +21,47 @@ export interface AgentResult {
   actions: ToolExecution[];
 }
 
+export interface FieldReportSubject {
+  name?: string | null;
+  phone?: string | null;
+  ageYears?: number | null;
+  ageMonths?: number | null;
+  gender?: string | null;
+  pregnant?: boolean | null;
+  pregnancyMonths?: number | null;
+}
+
+export interface FieldReportExtraction {
+  subject: FieldReportSubject;
+  symptoms: string[];
+  duration?: string | null;
+  trend?: string | null;
+  vitals: Record<string, number | null>;
+  dangerSigns: string[];
+  urgency?: string | null;
+  redFlags: string[];
+  suspectedCondition?: string | null;
+  suggestedSpecialty?: string | null;
+  summary?: string | null;
+  reporterNotes?: string | null;
+  confidence?: number | null;
+}
+
+export interface FieldReportInput {
+  rawText: string;
+  worker?: { name?: string; cadre?: string; village?: string };
+  /** Typed form fields. The model fills blanks; it never overrides these. */
+  known?: Record<string, unknown>;
+}
+
+const EMPTY_EXTRACTION: FieldReportExtraction = {
+  subject: {},
+  symptoms: [],
+  vitals: {},
+  dangerSigns: [],
+  redFlags: [],
+};
+
 export interface ToolExecution {
   name: string;
   args: Record<string, unknown>;
@@ -357,6 +398,79 @@ Respond with strict JSON: {"title": "...", "body": "full certificate text", "val
     });
     const text = completion.choices[0].message.content ?? '{}';
     return JSON.parse(this.extractJson(text));
+  }
+
+  /**
+   * A sibling to summarizeCall, not a parameterisation of it: that shape has
+   * three consumers and pinning tests, and this one reports on someone else.
+   */
+  async extractFieldReport(
+    input: FieldReportInput,
+    language = 'en',
+  ): Promise<FieldReportExtraction> {
+    const worker = input.worker;
+    const completion = await this.client.chat.completions.create({
+      model: this.model,
+      // json_object needs the word JSON in the prompt, which it has.
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You are structuring a household health report filed by ${
+            worker?.name ?? 'an ASHA/ANM health worker'
+          }${worker?.cadre ? ` (${worker.cadre})` : ''}${
+            worker?.village ? ` in the village of ${worker.village}` : ''
+          }. The worker is reporting on ANOTHER PERSON, not themselves.
+
+Already recorded by the worker (treat as fact, do not contradict):
+${JSON.stringify(input.known ?? {})}
+
+Return JSON with exactly this shape:
+{
+  "subject": {"name": null, "phone": null, "ageYears": null, "ageMonths": null, "gender": null, "pregnant": null, "pregnancyMonths": null},
+  "symptoms": ["..."],
+  "duration": null,
+  "trend": "improving | stable | worsening",
+  "vitals": {"temperatureC": null, "spo2": null, "systolic": null, "diastolic": null, "pulse": null, "respRate": null, "weightKg": null, "glucoseMgDl": null},
+  "dangerSigns": ["..."],
+  "urgency": "routine | semi-urgent | urgent | emergency",
+  "redFlags": ["..."],
+  "suspectedCondition": null,
+  "suggestedSpecialty": "the single medical specialty best suited, e.g. Cardiology, Pediatrics, Obstetrics, General Medicine",
+  "summary": "2-3 sentences in language ${language}",
+  "reporterNotes": "anything the worker said that a doctor should read verbatim",
+  "confidence": 0.0
+}
+
+Rules:
+- NEVER invent a vital sign. Only record a number the worker actually measured or stated. null beats a guess.
+- Phone numbers as digits only, no spaces or punctuation.
+- You may ESCALATE the worker's own urgency judgement, never downgrade it. They are standing there and you are not.
+- Do not diagnose and do not name any medicine.
+Respond with JSON only.`,
+        },
+        { role: 'user', content: input.rawText.slice(0, 20000) },
+      ],
+      temperature: 0.2,
+    });
+
+    const text = completion.choices[0].message.content ?? '{}';
+    return this.parseJson(text, EMPTY_EXTRACTION);
+  }
+
+  /**
+   * Scoped to extractFieldReport: a worker standing in a village must not lose
+   * a report because the model replied in prose.
+   */
+  private parseJson<T extends object>(text: string, fallback: T): T {
+    try {
+      return { ...fallback, ...(JSON.parse(this.extractJson(text)) as T) };
+    } catch (error) {
+      this.logger.warn(
+        `Model returned unparseable JSON, using fallback: ${(error as Error).message}`,
+      );
+      return fallback;
+    }
   }
 
   private extractJson(text: string): string {

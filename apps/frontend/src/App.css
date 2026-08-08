@@ -1081,7 +1081,8 @@
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border-2);
@@ -1092,11 +1093,29 @@
   background: var(--surface);
 }
 
+.field textarea {
+  resize: vertical;
+  min-height: 84px;
+  line-height: 1.5;
+}
+
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
+.field-unit {
+  font-weight: 400;
+  color: var(--text-3);
 }
 
 .auth-switch {
@@ -1206,6 +1225,185 @@
   justify-content: center;
   padding: 40px;
   color: var(--text-3);
+}
+
+/* ===== Field reporting ===== */
+.geo-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 16px 0;
+}
+
+.geo-reason {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.collapse {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.collapse > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.collapse > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.urgency-set {
+  border: none;
+  padding: 0;
+  margin: 0 0 14px;
+}
+
+.urgency-set legend {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.urgency-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.urgency-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.urgency-btn:hover {
+  opacity: 0.85;
+}
+
+.urgency-btn.is-selected {
+  opacity: 1;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.urgency-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.detail-list {
+  margin: 18px 0 0;
+}
+
+.detail-row {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.detail-row dt {
+  flex: none;
+  width: 132px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.detail-row dd {
+  margin: 0;
+  color: var(--text);
+}
+
+/* ===== Map ===== */
+.map-wrap {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.map-canvas {
+  height: 460px;
+  width: 100%;
+}
+
+.map-pin {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  border: 2px solid #fff;
+  box-shadow: var(--shadow-sm);
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Dashed ring: this pin is an assigned-area centroid, not a real fix. */
+.map-pin-assigned {
+  border-style: dashed;
+  opacity: 0.75;
+}
+
+.map-pin:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.map-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.map-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+
+.map-legend-count {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.map-popup {
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.map-popup strong {
+  color: var(--text);
+  font-size: 13px;
 }
 
 .mono {
@@ -1483,11 +1681,42 @@
   .app-shell {
     grid-template-columns: 1fr;
   }
+  /* The sidebar used to be display:none here, which left a phone with no
+     navigation at all - and the field screens are the phone-first ones. */
   .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .sidebar .brand,
+  .sidebar .user-chip {
     display: none;
+  }
+  .nav {
+    flex-direction: row;
+    gap: 6px;
+    flex: 1;
+  }
+  .nav-link {
+    white-space: nowrap;
+  }
+  .sidebar-footer {
+    flex: none;
+    margin: 0;
+    padding: 0;
+    border-top: none;
   }
   .grid-4 {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .map-canvas {
+    height: 340px;
   }
   .auth-page {
     grid-template-columns: 1fr;

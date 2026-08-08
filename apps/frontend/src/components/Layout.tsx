@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../store/auth'
 import { api } from '../api/client'
+import { homeFor, ROLE_LABEL, SUBTITLE } from '../roles'
 import type { AppNotification } from '../api/types'
 
 function Bell() {
@@ -118,22 +119,32 @@ export function Layout() {
   if (loading) return <div className="loading">Loading…</div>
   if (!user) return <Navigate to="/login" replace />
 
-  const isDoctor = user.role === 'doctor'
-  const home = isDoctor ? '/doctor' : '/chat'
-  const navItems = isDoctor
-    ? [
-        { to: '/doctor', label: 'Overview', icon: <GaugeIcon /> },
-        { to: '/doctor/callbacks', label: 'Call-backs', icon: <PhoneIcon />, count: badge['/doctor/callbacks'] },
-        { to: '/doctor/verify', label: 'Verify', icon: <ShieldIcon />, count: badge['/doctor/verify'] },
-        { to: '/doctor/records', label: 'Records', icon: <FileIcon /> },
-      ]
-    : [
-        { to: '/chat', label: 'Chat', icon: <ChatIcon /> },
-        { to: '/uploads', label: 'My Reports', icon: <UploadIcon /> },
-        { to: '/appointments', label: 'Appointments', icon: <CalendarIcon /> },
-        { to: '/certificates', label: 'Certificates', icon: <DocIcon /> },
-        { to: '/profile', label: 'Profile', icon: <UserIcon /> },
-      ]
+  const home = homeFor(user.role)
+  // Doctor and admin share one workspace, so they share one nav.
+  const doctorNav = [
+    { to: '/doctor', label: 'Overview', icon: <GaugeIcon /> },
+    { to: '/doctor/callbacks', label: 'Call-backs', icon: <PhoneIcon /> },
+    { to: '/doctor/verify', label: 'Verify', icon: <ShieldIcon /> },
+    { to: '/doctor/records', label: 'Records', icon: <FileIcon /> },
+  ]
+  const NAV: Record<string, typeof doctorNav> = {
+    patient: [
+      { to: '/chat', label: 'Chat', icon: <ChatIcon /> },
+      { to: '/uploads', label: 'My Reports', icon: <UploadIcon /> },
+      { to: '/appointments', label: 'Appointments', icon: <CalendarIcon /> },
+      { to: '/certificates', label: 'Certificates', icon: <DocIcon /> },
+      { to: '/profile', label: 'Profile', icon: <UserIcon /> },
+    ],
+    doctor: doctorNav,
+    admin: doctorNav,
+    health_worker: [
+      { to: '/field', label: 'New report', icon: <ClipboardIcon /> },
+      { to: '/field/reports', label: 'My reports', icon: <FileIcon /> },
+      { to: '/field/map', label: 'Map', icon: <MapPinIcon /> },
+      { to: '/field/profile', label: 'Profile', icon: <UserIcon /> },
+    ],
+  }
+  const navItems = NAV[user.role] ?? []
 
   return (
     <div className="app-shell">
@@ -150,7 +161,7 @@ export function Layout() {
             <NavLink key={item.to} to={item.to} className="nav-link" end={item.to === home}>
               <span className="nav-icon">{item.icon}</span>
               {item.label}
-              {item.count ? <span className="nav-badge">{item.count}</span> : null}
+              {badge[item.to] ? <span className="nav-badge">{badge[item.to]}</span> : null}
             </NavLink>
           ))}
         </nav>
@@ -159,7 +170,7 @@ export function Layout() {
             <div className="avatar">{(user.name ?? user.phone)[0]?.toUpperCase()}</div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="user-chip-name">{user.name ?? user.phone}</div>
-              <div className="user-chip-role">{user.role}</div>
+              <div className="user-chip-role">{ROLE_LABEL[user.role] ?? user.role}</div>
             </div>
           </div>
           <button className="logout" onClick={logout}>
@@ -172,9 +183,7 @@ export function Layout() {
           <header className="topbar">
             <div>
               <div className="topbar-title">MedAssist Health AI</div>
-              <div className="topbar-sub">
-                {isDoctor ? 'Doctor workspace' : 'Your personal health assistant'}
-              </div>
+              <div className="topbar-sub">{SUBTITLE[user.role] ?? ''}</div>
             </div>
             <div className="topbar-right">
               <Bell />
@@ -213,4 +222,10 @@ const DocIcon = () => (
 )
 const UserIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+)
+const MapPinIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="3" /></svg>
+)
+const ClipboardIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="8" y="2" width="8" height="4" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M9 12h6M9 16h4" /></svg>
 )

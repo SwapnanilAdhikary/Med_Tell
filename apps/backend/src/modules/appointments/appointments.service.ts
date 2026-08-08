@@ -6,6 +6,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Appointment } from './schemas/appointment.schema';
+import type { AppointmentType } from './schemas/appointment.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PatientsService } from '../patients/patients.service';
 import { DoctorsService } from '../doctors/doctors.service';
@@ -22,6 +23,21 @@ export interface BookAppointmentInput {
   urgency?: string;
   callSessionId?: string | Types.ObjectId;
   aiNotes?: Record<string, unknown>;
+  type?: AppointmentType;
+  facility?: string | Types.ObjectId;
+  /** Pre-formatted lines, so empty vitals disappear via bullet(). */
+  vitals?: string[];
+  /**
+   * A value object, not a ref: this is what keeps AppointmentsModule from
+   * importing HealthWorkersModule, so FieldReports -> Appointments stays a
+   * one-way edge with no forwardRef.
+   */
+  reportedBy?: {
+    workerName: string;
+    cadre?: string;
+    village?: string;
+    facilityName?: string;
+  };
 }
 
 /** What the AI hands back to the caller after routing a consultation. */
@@ -57,11 +73,13 @@ export class AppointmentsService {
     const doctor = await this.doctorsService.findBestMatch(
       input.specialty,
       patient.language,
+      { facility: input.facility },
     );
 
     const appointment = await this.appointmentModel.create({
       patient: input.patientId,
-      type: 'call-back',
+      // Every pre-existing caller omits `type`, so behaviour is unchanged.
+      type: input.type ?? 'call-back',
       reason: input.reason,
       suggestedDoctor: doctor?._id,
       suggestedSpecialty: input.specialty,
@@ -85,14 +103,26 @@ export class AppointmentsService {
         user: doctor.user,
         title: `New call-back matched to you: ${patient.name}`,
         body: [
+          input.reportedBy
+            ? `Reported by ${input.reportedBy.workerName}${input.reportedBy.cadre ? ` (${input.reportedBy.cadre})` : ''}`
+            : '',
           `Patient: ${patient.name}${patient.gender ? ` (${patient.gender})` : ''}`,
+          input.reportedBy?.village
+            ? `Village: ${input.reportedBy.village}`
+            : '',
+          input.reportedBy?.facilityName
+            ? `Nearest facility: ${input.reportedBy.facilityName}`
+            : '',
           input.urgency ? `Urgency: ${input.urgency}` : '',
           input.reason ? `Reason: ${input.reason}` : '',
           bullet('Symptoms', input.symptoms),
+          bullet('Vitals', input.vitals),
           bullet('Allergies', patient.healthProfile?.allergies),
           bullet('Conditions', patient.healthProfile?.conditions),
           bullet('Medications', patient.healthProfile?.medications),
-          input.preferredWindow ? `Preferred window: ${input.preferredWindow}` : '',
+          input.preferredWindow
+            ? `Preferred window: ${input.preferredWindow}`
+            : '',
           input.bestContactNumber ? `Contact: ${input.bestContactNumber}` : '',
         ]
           .filter(Boolean)
@@ -103,12 +133,17 @@ export class AppointmentsService {
     }
 
     // The doctor's details, back to the patient.
+    const inPerson = (input.type ?? 'call-back') === 'in-person';
     await this.notificationsService.create({
       user: patient.user,
       title: 'Consultation requested',
-      body: doctor
-        ? `You have been matched with ${this.doctorLabel(doctor)}. They will confirm and call you back${input.preferredWindow ? ` (${input.preferredWindow})` : ''}.`
-        : `A doctor will call you back${input.preferredWindow ? ` (${input.preferredWindow})` : ''}.`,
+      body: inPerson
+        ? // Deliberately unnamed: the facility is the nearest one, the matched
+          // doctor may work elsewhere, and promising both sends people wrong.
+          `Please visit ${input.reportedBy?.facilityName ?? 'your nearest health facility'} as soon as you can. Show this message when you arrive.`
+        : doctor
+          ? `You have been matched with ${this.doctorLabel(doctor)}. They will confirm and call you back${input.preferredWindow ? ` (${input.preferredWindow})` : ''}.`
+          : `A doctor will call you back${input.preferredWindow ? ` (${input.preferredWindow})` : ''}.`,
       type: 'appointment',
       ref: doctor ? { ...ref, doctorId: doctor._id.toString() } : ref,
     });
@@ -176,7 +211,9 @@ export class AppointmentsService {
     appointment.status = 'assigned';
     await appointment.save();
 
-    const doctor = await this.doctorsService.findById(doctorId).catch(() => null);
+    const doctor = await this.doctorsService
+      .findById(doctorId)
+      .catch(() => null);
     const patient = await this.patientsService.findById(appointment.patient);
 
     await this.notificationsService.create({

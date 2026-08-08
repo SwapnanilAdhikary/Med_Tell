@@ -4,6 +4,8 @@ import { HydratedDocument, Types } from 'mongoose';
 export type AppointmentStatus =
   'requested' | 'assigned' | 'completed' | 'cancelled';
 
+export type AppointmentType = 'call-back' | 'video' | 'in-person';
+
 export type AppointmentDocument = HydratedDocument<Appointment>;
 
 @Schema({ timestamps: true })
@@ -21,8 +23,13 @@ export class Appointment {
   @Prop({ trim: true })
   suggestedSpecialty?: string;
 
-  @Prop({ default: 'call-back' })
-  type!: 'call-back' | 'video' | 'in-person';
+  // Enum added with the first non-default writer: without it a typo saved silently.
+  @Prop({
+    type: String,
+    enum: ['call-back', 'video', 'in-person'],
+    default: 'call-back',
+  })
+  type!: AppointmentType;
 
   @Prop({ type: Date, index: true })
   slotStart?: Date;

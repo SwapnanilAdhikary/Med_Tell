@@ -7,10 +7,12 @@ import { AppConfigModule } from './config/app-config.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { DoctorsModule } from './modules/doctors/doctors.module';
+import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { CallsModule } from './modules/calls/calls.module';
+import { FieldReportsModule } from './modules/field-reports/field-reports.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CertificatesModule } from './modules/certificates/certificates.module';
 import { VerificationModule } from './modules/verification/verification.module';
@@ -27,10 +29,12 @@ import { AdminModule } from './modules/admin/admin.module';
     AuthModule,
     PatientsModule,
     DoctorsModule,
+    FacilitiesModule,
     AppointmentsModule,
     ConversationsModule,
     ChatModule,
     CallsModule,
+    FieldReportsModule,
     DocumentsModule,
     CertificatesModule,
     VerificationModule,

@@ -10,17 +10,39 @@ import * as crypto from 'node:crypto';
 import { User, UserDocument } from './schemas/user.schema';
 import { PatientsService } from '../patients/patients.service';
 import { DoctorsService } from '../doctors/doctors.service';
+import { HealthWorkersService } from '../health-workers/health-workers.service';
+import type { Cadre } from '../health-workers/schemas/health-worker.schema';
+
+export interface RegisterWorkerDto {
+  cadre?: Cadre;
+  workerCode?: string;
+  village?: string;
+  block?: string;
+  district?: string;
+  state?: string;
+  languages?: string[];
+}
 
 export interface RegisterDto {
   phone: string;
   password: string;
   name: string;
-  role?: 'patient' | 'doctor';
+  role?: 'patient' | 'doctor' | 'health_worker';
   specialty?: string;
   title?: string;
+  worker?: RegisterWorkerDto;
 }
 
 const SCRYPT_KEYLEN = 64;
+
+/** Placeholder for a villager we only know by the number that called in. */
+function placeholderName(phone: string): string {
+  return `Caller ${phone.slice(-4)}`;
+}
+
+function isPlaceholderName(name?: string): boolean {
+  return /^Caller \d+$/.test(name ?? '');
+}
 
 @Injectable()
 export class AuthService {
@@ -29,6 +51,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly patientsService: PatientsService,
     private readonly doctorsService: DoctorsService,
+    private readonly healthWorkersService: HealthWorkersService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -50,6 +73,15 @@ export class AuthService {
         name: dto.name,
         specialty: dto.specialty ?? 'General Medicine',
         title: dto.title,
+      });
+    } else if (role === 'health_worker') {
+      await this.healthWorkersService.create({
+        ...dto.worker,
+        user: user._id,
+        name: dto.name,
+        // ponytail: ASHA is the far larger cadre, so it is the default rather
+        // than a conditional @ValidateIf on the register body.
+        cadre: dto.worker?.cadre ?? 'ASHA',
       });
     } else {
       await this.patientsService.getOrCreateByUser(
@@ -78,9 +110,83 @@ export class AuthService {
     return patient ? patient._id.toString() : null;
   }
 
+  /**
+   * Resolves a phone number to a patient, creating a "shadow" account for a
+   * villager who has never used the app - the person an ASHA worker reports on,
+   * or an unknown number that phones the voice agent. Deliberately *not*
+   * `register()`: that must reject a known phone with 409, this must reuse it.
+   *
+   * ponytail: random password, no reset flow - this account can never log into
+   * the web app. OTP login is the upgrade path.
+   */
+  async findOrCreatePatientByPhone(
+    phone: string,
+    profile?: { name?: string; language?: string },
+  ): Promise<{ patientId: string; userId: string; created: boolean }> {
+    const existing = await this.userModel.findOne({ phone }).exec();
+    if (existing) return this.patientForUser(existing, profile);
+
+    const name = profile?.name ?? placeholderName(phone);
+    try {
+      const user = await this.userModel.create({
+        phone,
+        // A real hash, not a sentinel: verifyPassword compares buffers and a
+        // malformed one would turn a login attempt into a 500.
+        passwordHash: await this.hashPassword(
+          crypto.randomBytes(24).toString('hex'),
+        ),
+        role: 'patient',
+        name,
+      });
+      const patient = await this.patientsService.getOrCreateByUser(
+        user._id.toString(),
+        name,
+        profile?.language ?? 'en',
+      );
+      return {
+        patientId: patient._id.toString(),
+        userId: user._id.toString(),
+        created: true,
+      };
+    } catch (err) {
+      // A resent Vapi webhook races with itself; the unique index is the winner.
+      if ((err as { code?: number }).code !== 11000) throw err;
+      const raced = await this.userModel.findOne({ phone }).exec();
+      if (!raced) throw err;
+      return this.patientForUser(raced, profile);
+    }
+  }
+
+  private async patientForUser(
+    user: UserDocument,
+    profile?: { name?: string; language?: string },
+  ) {
+    if (user.role !== 'patient') {
+      throw new ConflictException(
+        `Phone number belongs to a ${user.role} account`,
+      );
+    }
+    // getOrCreateByUser, not patientIdForUser: a User can exist without a
+    // Patient after a half-failed register.
+    const patient = await this.patientsService.getOrCreateByUser(
+      user._id.toString(),
+      profile?.name ?? user.name ?? placeholderName(user.phone),
+      profile?.language ?? 'en',
+    );
+    if (profile?.name && isPlaceholderName(patient.name)) {
+      await this.patientsService.update(patient._id, { name: profile.name });
+    }
+    return {
+      patientId: patient._id.toString(),
+      userId: user._id.toString(),
+      created: false,
+    };
+  }
+
   private async buildSession(user: UserDocument) {
     let patientId: string | undefined;
     let doctorId: string | undefined;
+    let workerId: string | undefined;
     if (user.role === 'patient') {
       const patient = await this.patientsService.findByUser(
         user._id.toString(),
@@ -89,6 +195,11 @@ export class AuthService {
     } else if (user.role === 'doctor') {
       const doctor = await this.doctorsService.findByUser(user._id.toString());
       doctorId = doctor?._id.toString();
+    } else if (user.role === 'health_worker') {
+      const worker = await this.healthWorkersService.findByUser(
+        user._id.toString(),
+      );
+      workerId = worker?._id.toString();
     }
 
     const payload = {
@@ -97,6 +208,7 @@ export class AuthService {
       phone: user.phone,
       patientId,
       doctorId,
+      workerId,
     };
     const token = await this.jwtService.signAsync(payload);
     return {
@@ -108,6 +220,7 @@ export class AuthService {
         role: user.role,
         patientId,
         doctorId,
+        workerId,
       },
     };
   }
@@ -129,10 +242,12 @@ export class AuthService {
     const candidate = (
       await this.scrypt(password, salt, SCRYPT_KEYLEN)
     ).toString('hex');
-    return crypto.timingSafeEqual(
-      Buffer.from(candidate, 'hex'),
-      Buffer.from(hash, 'hex'),
-    );
+    const a = Buffer.from(candidate, 'hex');
+    const b = Buffer.from(hash, 'hex');
+    // timingSafeEqual throws RangeError on a length mismatch, which would turn a
+    // malformed stored hash into a 500 instead of a 401.
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
   }
 
   private scrypt(
