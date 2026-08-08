@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
+import { ConflictException } from '@nestjs/common';
 import { CallsService } from './calls.service';
 import { CallSession } from './schemas/call-session.schema';
 import { AiService } from '../ai/ai.service';
@@ -33,7 +34,11 @@ describe('CallsService', () => {
   };
   const patientsService = { findById: jest.fn() };
   const certificatesService = { request: jest.fn() };
-  const authService = { findByPhone: jest.fn(), patientIdForUser: jest.fn() };
+  const authService = {
+    findByPhone: jest.fn(),
+    patientIdForUser: jest.fn(),
+    findOrCreatePatientByPhone: jest.fn(),
+  };
 
   /** A saved CallSession doc as the model would hand it back. */
   function session(overrides: Record<string, unknown> = {}) {
@@ -270,6 +275,48 @@ describe('CallsService', () => {
       expect(authService.findByPhone).toHaveBeenCalledWith('+919876543210');
       expect(appointmentsService.book).toHaveBeenCalled();
       expect(res).toEqual(expect.objectContaining({ ok: true, linked: true }));
+    });
+
+    it('creates a shadow patient for a number nobody has registered', async () => {
+      upsertReturns(session({ phoneNumber: '+919700009999' }));
+      authService.findByPhone.mockResolvedValue(null);
+      authService.findOrCreatePatientByPhone.mockResolvedValue({
+        patientId: 'patient-1',
+        userId: 'user-9',
+        created: true,
+      });
+
+      const res = await service.handleWebhook({
+        message: {
+          type: 'end-of-call-report',
+          call: { id: 'vapi-1', phoneNumber: { number: '+919700009999' } },
+          transcriptText: 'user: my chest hurts',
+        },
+      });
+
+      expect(authService.findOrCreatePatientByPhone).toHaveBeenCalledWith(
+        '+919700009999',
+      );
+      expect(res).toEqual(expect.objectContaining({ linked: true }));
+    });
+
+    it('does not drop the call silently when the number belongs to a doctor', async () => {
+      upsertReturns(session({ phoneNumber: '+919800000001' }));
+      authService.findByPhone.mockResolvedValue(null);
+      authService.findOrCreatePatientByPhone.mockRejectedValue(
+        new ConflictException('Phone number belongs to a doctor account'),
+      );
+
+      const res = await service.handleWebhook({
+        message: {
+          type: 'end-of-call-report',
+          call: { id: 'vapi-1', phoneNumber: { number: '+919800000001' } },
+          transcriptText: 'user: hello',
+        },
+      });
+
+      expect(res).toEqual(expect.objectContaining({ linked: false }));
+      expect(aiService.summarizeCall).not.toHaveBeenCalled();
     });
 
     it('skips triage when the call cannot be tied to a patient', async () => {

@@ -14,6 +14,7 @@ export interface AuthUser {
   phone: string;
   patientId?: string;
   doctorId?: string;
+  workerId?: string;
 }
 
 export interface AuthedRequest extends Request {
@@ -38,6 +39,7 @@ export class JwtAuthGuard implements CanActivate {
         phone: payload.phone as string,
         patientId: payload.patientId as string | undefined,
         doctorId: payload.doctorId as string | undefined,
+        workerId: payload.workerId as string | undefined,
       };
       return true;
     } catch {

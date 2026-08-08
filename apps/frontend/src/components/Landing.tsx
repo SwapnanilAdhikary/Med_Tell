@@ -1,5 +1,6 @@
 import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '../store/auth'
+import { homeFor } from '../roles'
 
 const FEATURES = [
   {
@@ -37,7 +38,7 @@ const FEATURES = [
 export function Landing() {
   const { user } = useAuth()
   if (user) {
-    return <Navigate to={user.role === 'doctor' ? '/doctor' : '/chat'} replace />
+    return <Navigate to={homeFor(user.role)} replace />
   }
   return (
     <div className="landing">
@@ -52,6 +53,9 @@ export function Landing() {
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
           <Link to="/login" className="btn btn-secondary">
             Patient sign in
+          </Link>
+          <Link to="/login" className="btn btn-secondary">
+            ASHA / ANM sign in
           </Link>
           <Link to="/login?role=doctor" className="btn btn-primary">
             Doctor workspace

@@ -3,9 +3,17 @@ import { getModelToken } from '@nestjs/mongoose';
 import { DoctorsService } from './doctors.service';
 import { Doctor } from './schemas/doctor.schema';
 
-function doctor(name: string, specialty: string, languages: string[] = []) {
-  return { _id: name, name, specialty, languages, verified: true };
+function doctor(
+  name: string,
+  specialty: string,
+  languages: string[] = [],
+  facility?: string,
+) {
+  return { _id: name, name, specialty, languages, facility, verified: true };
 }
+
+const LOCAL = 'facility-beldanga';
+const REMOTE = 'facility-district';
 
 const ROSTER = [
   doctor('Ananya Banerjee', 'General Medicine', ['en', 'bn']),
@@ -16,7 +24,11 @@ const ROSTER = [
 describe('DoctorsService.findBestMatch', () => {
   let service: DoctorsService;
 
-  const doctorModel = { find: jest.fn(), findById: jest.fn(), findOne: jest.fn() };
+  const doctorModel = {
+    find: jest.fn(),
+    findById: jest.fn(),
+    findOne: jest.fn(),
+  };
 
   function rosterIs(roster: unknown[]) {
     doctorModel.find.mockReturnValue({
@@ -101,5 +113,94 @@ describe('DoctorsService.findBestMatch', () => {
     expect((await service.findBestMatch('c++ (*heart*)'))?.name).toBe(
       'Ananya Banerjee',
     );
+  });
+
+  describe('with a facility', () => {
+    it('gives identical results when the third argument is omitted', async () => {
+      rosterIs(ROSTER);
+      const withArg = await service.findBestMatch('Cardiology', 'hi', {});
+      rosterIs(ROSTER);
+      const without = await service.findBestMatch('Cardiology', 'hi');
+      expect(withArg?.name).toBe(without?.name);
+    });
+
+    it('still queries only on verified, never on facility', async () => {
+      rosterIs(ROSTER);
+      await service.findBestMatch('Cardiology', undefined, { facility: LOCAL });
+      // Pre-filtering would make a doctorless facility return null instead of
+      // falling back to the network.
+      expect(doctorModel.find).toHaveBeenCalledWith({ verified: true });
+    });
+
+    it('breaks a specialty tie on proximity', async () => {
+      rosterIs([
+        doctor('Amit Roy', 'Cardiology', ['en'], REMOTE),
+        doctor('Zoya Khan', 'Cardiology', ['en'], LOCAL),
+      ]);
+      expect(
+        (
+          await service.findBestMatch('Cardiology', undefined, {
+            facility: LOCAL,
+          })
+        )?.name,
+      ).toBe('Zoya Khan');
+    });
+
+    it('lets specialty beat proximity', async () => {
+      rosterIs([
+        doctor('Local Generalist', 'General Medicine', [], LOCAL),
+        doctor('Remote Cardiologist', 'Cardiology', [], REMOTE),
+      ]);
+      // 20 + 15 = 35 against 100.
+      expect(
+        (
+          await service.findBestMatch('Cardiology', undefined, {
+            facility: LOCAL,
+          })
+        )?.name,
+      ).toBe('Remote Cardiologist');
+    });
+
+    it('lets the General Medicine fallback beat proximity — this pins 15, not 30', async () => {
+      rosterIs([
+        doctor('Local Paediatrician', 'Pediatrics', [], LOCAL),
+        doctor('Remote Generalist', 'General Medicine', [], REMOTE),
+      ]);
+      // 15 against 20: a local paediatrician must not take an adult case.
+      expect(
+        (
+          await service.findBestMatch('Astrology', undefined, {
+            facility: LOCAL,
+          })
+        )?.name,
+      ).toBe('Remote Generalist');
+    });
+
+    it('beats a language match', async () => {
+      rosterIs([
+        doctor('Remote Bengali', 'Cardiology', ['bn'], REMOTE),
+        doctor('Local Hindi', 'Cardiology', ['hi'], LOCAL),
+      ]);
+      // 115 against 110.
+      expect(
+        (await service.findBestMatch('Cardiology', 'bn', { facility: LOCAL }))
+          ?.name,
+      ).toBe('Local Hindi');
+    });
+
+    it('matches a facility id given as an ObjectId-like value', async () => {
+      rosterIs([
+        doctor('Remote', 'Cardiology', [], REMOTE),
+        doctor('Local', 'Cardiology', [], LOCAL),
+      ]);
+      const objectIdLike = { toString: () => LOCAL };
+      expect(
+        (
+          await service.findBestMatch('Cardiology', undefined, {
+            facility: objectIdLike as never,
+          })
+        )?.name,
+      ).toBe('Local');
+    });
   });
 });
