@@ -2,9 +2,10 @@ export interface AuthUser {
   id: string
   phone: string
   name?: string
-  role: 'patient' | 'doctor' | 'admin'
+  role: 'patient' | 'doctor' | 'health_worker' | 'admin'
   patientId?: string
   doctorId?: string
+  workerId?: string
 }
 
 export interface Patient {
