@@ -306,7 +306,7 @@ export class FieldReportsService {
     facilityId?: Types.ObjectId,
   ) {
     try {
-      const { appointment } = await this.appointmentsService.book({
+      const { appointment, doctor } = await this.appointmentsService.book({
         patientId: report.patient,
         reason:
           e.summary ??
@@ -328,6 +328,13 @@ export class FieldReportsService {
         },
       });
       report.appointment = appointment._id;
+      if (doctor) {
+        report.matchedDoctor = {
+          name: doctor.name,
+          specialty: doctor.specialty,
+          title: doctor.title,
+        };
+      }
       report.status = 'routed';
     } catch (error) {
       report.routingError = (error as Error).message;
@@ -361,6 +368,9 @@ export class FieldReportsService {
       .find(idFilter('worker', workerId))
       .sort({ createdAt: -1 })
       .populate('facility')
+      // Name only: the worker filed the report, they are not owed the
+      // subject's health profile or consent record.
+      .populate('patient', 'name')
       .lean()
       .exec();
   }
@@ -372,7 +382,7 @@ export class FieldReportsService {
     const report = await this.reportModel
       .findById(id)
       .populate('facility')
-      .populate('patient')
+      .populate('patient', 'name')
       .exec();
     // 404 rather than 403: a worker must not learn that someone else's report id exists.
     if (!report || String(report.worker) !== String(workerId)) {

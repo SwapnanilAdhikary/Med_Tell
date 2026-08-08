@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import './App.css'
 import { AuthProvider, useAuth } from './store/auth'
@@ -14,6 +15,15 @@ import { Verification } from './components/doctor/Verification'
 import { Records } from './components/doctor/Records'
 import { Landing } from './components/Landing'
 import { Login } from './components/Login'
+import { NewReport } from './components/field/NewReport'
+import { MyReports } from './components/field/MyReports'
+import { ReportDetail } from './components/field/ReportDetail'
+import { WorkerProfile } from './components/field/WorkerProfile'
+
+// mapbox-gl is ~1.8MB. Split out so patients and doctors never download it.
+const FieldMap = lazy(() =>
+  import('./components/field/FieldMap').then((m) => ({ default: m.FieldMap })),
+)
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
@@ -95,18 +105,18 @@ function App() {
               </Protected>
             }
           >
-            {/* ponytail: a placeholder, not scaffolding - HOME.health_worker
-                points here, so without a real route a worker login loops
-                through Landing. PR 5 replaces this with the capture screens. */}
+            <Route path="/field" element={<NewReport />} />
+            <Route path="/field/reports" element={<MyReports />} />
+            <Route path="/field/reports/:id" element={<ReportDetail />} />
             <Route
-              path="/field"
+              path="/field/map"
               element={
-                <EmptyPage title="Field reporting is not built yet">
-                  Your account is set up as an ASHA / ANM worker. The report capture screens arrive
-                  in the next release.
-                </EmptyPage>
+                <Suspense fallback={<div className="loading">Loading the map…</div>}>
+                  <FieldMap />
+                </Suspense>
               }
             />
+            <Route path="/field/profile" element={<WorkerProfile />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
