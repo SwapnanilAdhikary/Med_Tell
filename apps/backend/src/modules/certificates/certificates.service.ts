@@ -20,6 +20,7 @@ import { PatientsService } from '../patients/patients.service';
 import { DoctorsService } from '../doctors/doctors.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { idFilter } from '../../common/mongoose.util';
+import { winAnsiSafe } from '../../common/pdf.util';
 
 export interface RequestCertificateInput {
   patientId: string | Types.ObjectId;
@@ -232,9 +233,10 @@ export class CertificatesService {
       },
     );
 
-    const title =
+    const title = winAnsiSafe(
       (certificate.draftContent as { title?: string })?.title ??
-      'Medical Certificate';
+        'Medical Certificate',
+    );
     page.drawText(title, {
       x: 60,
       y: height - 200,
@@ -242,17 +244,19 @@ export class CertificatesService {
       font: bold,
     });
 
-    const body = (certificate.draftContent as { body?: string })?.body ?? '';
+    const body = winAnsiSafe(
+      (certificate.draftContent as { body?: string })?.body ?? '',
+    );
     this.drawWrappedText(page, body, 60, height - 230, 475, 14, font);
 
-    page.drawText(`This is to certify that: ${patientName}`, {
+    page.drawText(`This is to certify that: ${winAnsiSafe(patientName)}`, {
       x: 60,
       y: 220,
       size: 12,
       font: bold,
     });
 
-    page.drawText(`Signed by: ${doctorName}`, {
+    page.drawText(`Signed by: ${winAnsiSafe(doctorName)}`, {
       x: 60,
       y: 140,
       size: 12,
