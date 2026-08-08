@@ -32,3 +32,6 @@ scratch/
 # Misc
 .turbo/
 .temp/
+
+# Voice notes are transcribed then deleted; never commit one.
+apps/backend/tmp-audio/

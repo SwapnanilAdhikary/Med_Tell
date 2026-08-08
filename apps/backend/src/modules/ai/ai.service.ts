@@ -83,10 +83,15 @@ export class AiService {
   private readonly client: OpenAI;
   private readonly model: string;
   private readonly visionModel: string;
+  private readonly transcribeModel: string;
 
   constructor(config: ConfigService) {
     this.model = config.get<string>('OPENAI_MODEL', 'gpt-4o-mini');
     this.visionModel = config.get<string>('OPENAI_VISION_MODEL', 'gpt-4o-mini');
+    this.transcribeModel = config.get<string>(
+      'OPENAI_TRANSCRIBE_MODEL',
+      'whisper-1',
+    );
     this.client = new OpenAI({
       apiKey: config.get<string>('OPENAI_API_KEY', '') || 'sk-placeholder',
     });
@@ -456,6 +461,21 @@ Respond with JSON only.`,
 
     const text = completion.choices[0].message.content ?? '{}';
     return this.parseJson(text, EMPTY_EXTRACTION);
+  }
+
+  /**
+   * Speech to text for a worker's voice note. The transcript goes back to the
+   * browser for the worker to read and correct before anything is filed - a
+   * misheard vital must never reach a doctor unchallenged.
+   */
+  async transcribeAudio(filePath: string, language?: string): Promise<string> {
+    const result = await this.client.audio.transcriptions.create({
+      model: this.transcribeModel,
+      file: fs.createReadStream(filePath),
+      // Whisper guesses badly on short Indic clips; naming the language helps.
+      ...(language ? { language } : {}),
+    });
+    return result.text ?? '';
   }
 
   /**

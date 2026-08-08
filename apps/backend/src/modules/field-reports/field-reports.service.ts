@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import * as fsp from 'node:fs/promises';
 import {
   FieldReport,
   FieldReportDocument,
@@ -41,7 +42,7 @@ export interface SubmitFieldReportInput {
   dangerSigns?: string[];
   vitals?: Vitals;
   narrative?: string;
-  geo?: { lat: number; lng: number; accuracyM?: number };
+  geo?: { lat: number; lng: number; accuracyM?: number; picked?: boolean };
 }
 
 /** The plain merged shape, before Mongoose casts it into a subdocument. */
@@ -283,8 +284,8 @@ export class FieldReportsService {
     if (channel === 'web' && geo) {
       return {
         point: { type: 'Point' as const, coordinates: [geo.lng, geo.lat] },
-        source: 'gps' as const,
-        accuracyM: geo.accuracyM,
+        source: geo.picked ? ('picked' as const) : ('gps' as const),
+        accuracyM: geo.picked ? undefined : geo.accuracyM,
         ...area,
       };
     }
@@ -360,19 +361,42 @@ export class FieldReportsService {
       .map(([key, value]) => VITAL_LABELS[key](value as number));
   }
 
+  /**
+   * Audio in, text out. Deliberately does *not* file anything: the worker reads
+   * the transcript, fixes what was misheard, and adds the phone number that a
+   * voice note usually cannot supply. The file is deleted either way.
+   */
+  async transcribe(
+    workerId: string | undefined,
+    filePath: string,
+    language?: string,
+  ): Promise<{ text: string }> {
+    if (!workerId) {
+      throw new ForbiddenException('No health worker linked to this account');
+    }
+    try {
+      const text = await this.aiService.transcribeAudio(filePath, language);
+      return { text };
+    } finally {
+      await fsp.rm(filePath, { force: true }).catch(() => undefined);
+    }
+  }
+
   async listForWorker(workerId: string | undefined) {
     if (!workerId) {
       throw new ForbiddenException('No health worker linked to this account');
     }
-    return this.reportModel
-      .find(idFilter('worker', workerId))
-      .sort({ createdAt: -1 })
-      .populate('facility')
-      // Name only: the worker filed the report, they are not owed the
-      // subject's health profile or consent record.
-      .populate('patient', 'name')
-      .lean()
-      .exec();
+    return (
+      this.reportModel
+        .find(idFilter('worker', workerId))
+        .sort({ createdAt: -1 })
+        .populate('facility')
+        // Name only: the worker filed the report, they are not owed the
+        // subject's health profile or consent record.
+        .populate('patient', 'name')
+        .lean()
+        .exec()
+    );
   }
 
   async findForWorker(workerId: string | undefined, id: string) {

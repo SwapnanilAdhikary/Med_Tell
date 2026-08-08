@@ -5,7 +5,7 @@ import { GeoPoint } from '../../facilities/schemas/facility.schema';
 /** Exactly the vocabulary CallsService already routes on, so the two agree. */
 export type Urgency = 'routine' | 'semi-urgent' | 'urgent' | 'emergency';
 
-export type LocationSource = 'gps' | 'assigned' | 'spoken';
+export type LocationSource = 'gps' | 'picked' | 'assigned' | 'spoken';
 
 export type FieldReportStatus =
   'extracting' | 'submitted' | 'routed' | 'failed';
@@ -69,7 +69,7 @@ export class ReportLocation {
    */
   @Prop({
     type: String,
-    enum: ['gps', 'assigned', 'spoken'],
+    enum: ['gps', 'picked', 'assigned', 'spoken'],
     required: true,
   })
   source!: LocationSource;

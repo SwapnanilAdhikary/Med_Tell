@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { api } from '../../api/client'
 import { getFix, type GeoState } from '../../api/geo'
 import type { FieldReport, FieldReportVitals, Urgency } from '../../api/types'
 import { URGENCIES, VITALS } from './labels'
+import { VoiceRecorder } from './VoiceRecorder'
+import type { PickedPoint } from './CaptureSheet'
 
 interface FormState {
   name: string
@@ -51,7 +53,31 @@ function showPregnancy(form: FormState): boolean {
   return form.gender === 'female' && (!form.age || (years >= 12 && years <= 55))
 }
 
-function GeoStrip({ geo, onRetry }: { geo: GeoState; onRetry: () => void }) {
+function GeoStrip({
+  geo,
+  pinned,
+  onRetry,
+}: {
+  geo: GeoState
+  pinned?: PickedPoint
+  onRetry: () => void
+}) {
+  // A point handed over from the map wins: the worker chose it deliberately.
+  if (pinned) {
+    return (
+      <div className="geo-strip">
+        <span className="pill pill-info">
+          {pinned.picked ? 'Pinned on the map' : 'Your location'}
+        </span>
+        <span className="geo-reason mono">
+          {pinned.lat.toFixed(5)}, {pinned.lng.toFixed(5)}
+        </span>
+        <Link className="btn btn-secondary btn-sm" to="/field/map">
+          Change on map
+        </Link>
+      </div>
+    )
+  }
   return (
     <div className="geo-strip">
       {geo.status === 'locating' && (
@@ -117,6 +143,10 @@ function Filed({ report, onAnother }: { report: FieldReport; onAnother: () => vo
 }
 
 export function NewReport() {
+  const routed = (useLocation().state ?? {}) as {
+    point?: PickedPoint
+    startRecording?: boolean
+  }
   const [form, setForm] = useState<FormState>(EMPTY)
   const [geo, setGeo] = useState<GeoState>({ status: 'idle' })
   const [busy, setBusy] = useState(false)
@@ -128,7 +158,10 @@ export function NewReport() {
     getFix().then(setGeo)
   }
 
-  useEffect(locate, [])
+  useEffect(() => {
+    // No need to ask for GPS when the map already handed us a point.
+    if (!routed.point) locate()
+  }, [routed.point])
 
   const set = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }))
   const setVital = (key: string, value: string) =>
@@ -163,7 +196,20 @@ export function NewReport() {
       ...(form.dangerSigns ? { dangerSigns: csv(form.dangerSigns) } : {}),
       ...(Object.keys(vitals).length ? { vitals } : {}),
       ...(form.narrative ? { narrative: form.narrative.trim() } : {}),
-      ...(geo.status === 'ready' ? { geo: geo.fix } : {}),
+      ...(routed.point
+        ? {
+            geo: {
+              lat: routed.point.lat,
+              lng: routed.point.lng,
+              picked: routed.point.picked,
+              ...(routed.point.accuracyM != null && !routed.point.picked
+                ? { accuracyM: routed.point.accuracyM }
+                : {}),
+            },
+          }
+        : geo.status === 'ready'
+          ? { geo: geo.fix }
+          : {}),
     }
 
     try {
@@ -200,7 +246,14 @@ export function NewReport() {
           You are reporting on someone else. A doctor reviews everything you file.
         </div>
 
-        <GeoStrip geo={geo} onRetry={locate} />
+        <GeoStrip geo={geo} pinned={routed.point} onRetry={locate} />
+
+        <VoiceRecorder
+          autoStart={routed.startRecording}
+          onTranscript={(text) =>
+            set({ narrative: form.narrative ? `${form.narrative}\n${text}` : text })
+          }
+        />
 
         {error && (
           <div className="auth-error" role="alert">

@@ -151,6 +151,18 @@ describe('FieldReportsService', () => {
       expect(createdWith().channel).toBe('voice');
     });
 
+    it('records a tapped pin as picked, not gps, and drops the accuracy', async () => {
+      await service.submit(
+        'worker-1',
+        input({ geo: { lat: 23.93, lng: 88.25, accuracyM: 12, picked: true } }),
+      );
+
+      expect(createdWith().location.source).toBe('picked');
+      // A tapped point has no measured accuracy, so claiming one would be a lie.
+      expect(createdWith().location.accuracyM).toBeUndefined();
+      expect(createdWith().location.point.coordinates).toEqual([88.25, 23.93]);
+    });
+
     it('keeps the area denormalised on the report', async () => {
       await service.submit(
         'worker-1',
