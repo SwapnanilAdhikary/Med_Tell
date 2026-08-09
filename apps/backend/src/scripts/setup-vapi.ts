@@ -10,6 +10,10 @@
  * that guard an --asha run would find VAPI_ASSISTANT_ID and overwrite the
  * shared patient assistant.
  *
+ * Flags:
+ *   --upsert-only   never POST a new assistant; fail if none exists to patch
+ *   --no-write-env  print IDs only; do not touch apps/backend/.env (use in CI)
+ *
  * Env used:
  *   VAPI_API_KEY             required - private API key from dashboard.vapi.ai
  *   VAPI_ASSISTANT_ID        pinned by the patient profile
@@ -204,6 +208,10 @@ async function api(
 }
 
 function upsertEnvAssistantId(envKey: string, assistantId: string) {
+  if (process.argv.includes('--no-write-env')) {
+    console.log(`[setup-vapi] ${envKey}=${assistantId} (not written — --no-write-env)`);
+    return;
+  }
   const envPath = path.resolve(process.cwd(), '.env');
   if (!fs.existsSync(envPath)) {
     console.warn(
@@ -238,8 +246,9 @@ async function run() {
   const profile = process.argv.includes('--asha')
     ? PROFILES.asha
     : PROFILES.patient;
+  const upsertOnly = process.argv.includes('--upsert-only');
   console.log(
-    `[setup-vapi] Profile "${profile.key}" -> assistant "${profile.name}", pinned by ${profile.envKey}`,
+    `[setup-vapi] Profile "${profile.key}" -> assistant "${profile.name}", pinned by ${profile.envKey}${upsertOnly ? ' (upsert-only)' : ''}`,
   );
 
   // Each profile reads its OWN env key. Reading VAPI_ASSISTANT_ID here for the
@@ -286,6 +295,12 @@ async function run() {
       `[setup-vapi] Updated existing assistant "${updated.name ?? profile.name}" -> ${updated.id}`,
     );
     upsertEnvAssistantId(profile.envKey, updated.id!);
+  } else if (upsertOnly) {
+    console.error(
+      `[setup-vapi] No assistant found for "${profile.name}" and --upsert-only is set. ` +
+        `Create one in the Vapi dashboard first, then set ${profile.envKey}=<id> and re-run.`,
+    );
+    process.exit(1);
   } else {
     const created = (await api(
       'POST',

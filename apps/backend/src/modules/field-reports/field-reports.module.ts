@@ -15,10 +15,11 @@ import { FacilitiesModule } from '../facilities/facilities.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { FieldNotesModule } from '../field-notes/field-notes.module';
 import { PrescriptionsModule } from '../prescriptions/prescriptions.module';
+import { dataPath } from '../../common/data-dir';
 
 // Voice notes are transcribed then deleted, so they live in a scratch dir and
 // are never served - unlike uploads/, which ServeStatic exposes.
-const AUDIO_DIR = path.join(process.cwd(), 'tmp-audio');
+const AUDIO_DIR = dataPath('tmp-audio');
 
 @Module({
   imports: [

@@ -23,6 +23,7 @@ import { DoctorsService } from '../doctors/doctors.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { winAnsiSafe, drawWrappedText } from '../../common/pdf.util';
 import { idFilter } from '../../common/mongoose.util';
+import { dataPath } from '../../common/data-dir';
 
 export interface RequestPrescriptionClinical {
   symptoms?: string[];
@@ -53,7 +54,7 @@ export interface DoctorEdit {
   items?: PrescriptionItem[];
 }
 
-const RX_DIR = path.join(process.cwd(), 'prescriptions');
+const RX_DIR = dataPath('prescriptions');
 
 @Injectable()
 export class PrescriptionsService {

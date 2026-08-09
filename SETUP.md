@@ -104,6 +104,10 @@ fetch('/api/health');
 
 No CORS issues during development (proxy + `enableCors()` are already configured).
 
+## Production deployment
+
+See **[DEPLOY.md](DEPLOY.md)** for MongoDB Atlas seeding, Vercel (frontend + backend), and Vapi assistant upsert steps.
+
 ## Useful commands
 
 | Command             | Description                          |

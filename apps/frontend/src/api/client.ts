@@ -1,3 +1,7 @@
+import { apiUrl } from './base'
+
+export { apiUrl } from './base'
+
 const TOKEN_KEY = 'medassist_token'
 
 export function getToken(): string | null {
@@ -25,7 +29,7 @@ export async function api<T = unknown>(
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(path, { ...options, headers })
+  const res = await fetch(apiUrl(path), { ...options, headers })
   if (res.status === 401) {
     clearToken()
     localStorage.removeItem('medassist_user')
@@ -56,7 +60,7 @@ export const apiJson = (path: string, body: unknown) =>
  */
 export async function openAuthedFile(path: string): Promise<void> {
   const token = getToken()
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!res.ok) throw new Error(`Could not open file (${res.status})`)

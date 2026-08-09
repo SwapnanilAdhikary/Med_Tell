@@ -21,6 +21,7 @@ import { DoctorsService } from '../doctors/doctors.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { idFilter } from '../../common/mongoose.util';
 import { winAnsiSafe } from '../../common/pdf.util';
+import { dataPath } from '../../common/data-dir';
 
 export interface RequestCertificateInput {
   patientId: string | Types.ObjectId;
@@ -29,7 +30,7 @@ export interface RequestCertificateInput {
   details?: Record<string, unknown>;
 }
 
-const CERT_DIR = path.join(process.cwd(), 'certificates');
+const CERT_DIR = dataPath('certificates');
 
 @Injectable()
 export class CertificatesService {

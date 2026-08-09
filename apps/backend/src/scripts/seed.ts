@@ -6,12 +6,15 @@
  * screen in the app has data to show at the hackathon.
  *
  * Run with: npm run seed --workspace @iem-hacks/backend
+ * Extra demo volume: npm run seed:bulk --workspace @iem-hacks/backend
  * All demo accounts use the password: demo123
  */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
 import * as crypto from 'node:crypto';
 import * as mongoose from 'mongoose';
 import 'dotenv/config';
+
+const BULK = process.argv.includes('--bulk');
 
 const SCRYPT_KEYLEN = 64;
 
@@ -53,6 +56,12 @@ const USERS: SeedUser[] = [
   { phone: '+919876543210', name: 'Priya Sharma', role: 'patient' },
   { phone: '+919876543211', name: 'Rahul Verma', role: 'patient' },
   { phone: '+919876543212', name: 'Meera Das', role: 'patient' },
+  { phone: '+919876543213', name: 'Ravi Das', role: 'patient' },
+  { phone: '+919876543214', name: 'Sunita Devi', role: 'patient' },
+  { phone: '+919876543215', name: 'Kamal Hossain', role: 'patient' },
+  { phone: '+919876543216', name: 'Fatima Begum', role: 'patient' },
+  { phone: '+919876543217', name: 'Arjun Mondal', role: 'patient' },
+  { phone: '+919876543218', name: 'Purnima Sarkar', role: 'patient' },
   { phone: '+919800000001', name: 'Ananya Banerjee', role: 'doctor' },
   { phone: '+919800000002', name: 'Rohan Mehta', role: 'doctor' },
   { phone: '+919800000003', name: 'Sneha Iyer', role: 'doctor' },
@@ -165,6 +174,12 @@ const PATIENT_DETAILS: Record<
   '+919876543210': { gender: 'female', bloodGroup: 'B+', language: 'en' },
   '+919876543211': { gender: 'male', bloodGroup: 'O+', language: 'hi' },
   '+919876543212': { gender: 'female', bloodGroup: 'A+', language: 'bn' },
+  '+919876543213': { gender: 'male', bloodGroup: 'B+', language: 'bn' },
+  '+919876543214': { gender: 'female', bloodGroup: 'O+', language: 'hi' },
+  '+919876543215': { gender: 'male', bloodGroup: 'AB+', language: 'bn' },
+  '+919876543216': { gender: 'female', bloodGroup: 'A-', language: 'bn' },
+  '+919876543217': { gender: 'male', bloodGroup: 'O-', language: 'hi' },
+  '+919876543218': { gender: 'female', bloodGroup: 'B-', language: 'bn' },
 };
 
 const APPOINTMENTS = [
@@ -316,6 +331,134 @@ const PRESCRIPTIONS = [
     },
   },
 ];
+
+const FIELD_REPORTS = [
+  {
+    worker: '+919700000001',
+    patient: '+919876543214',
+    channel: 'web' as const,
+    status: 'routed' as const,
+    language: 'bn',
+    extraction: {
+      symptoms: ['fever', 'body ache'],
+      vitals: { temperatureC: 38.2, pulse: 92 },
+      duration: '2 days',
+      trend: 'worsening',
+      urgency: 'semi-urgent',
+      suggestedSpecialty: 'General Medicine',
+      summary: 'Adult male with fever and myalgia for two days, vitals suggest low-grade fever.',
+      dangerSigns: [],
+      redFlags: [],
+      confidence: 0.86,
+    },
+    matchedDoctor: {
+      name: 'Ananya Banerjee',
+      specialty: 'General Medicine',
+      title: 'MBBS, MD',
+    },
+  },
+  {
+    worker: '+919700000001',
+    patient: '+919876543216',
+    channel: 'voice' as const,
+    status: 'routed' as const,
+    language: 'bn',
+    extraction: {
+      symptoms: ['abdominal pain', 'nausea'],
+      vitals: { temperatureC: 37.1 },
+      duration: '5 days',
+      trend: 'same',
+      urgency: 'routine',
+      suggestedSpecialty: 'Obstetrics & Gynaecology',
+      pregnancyStatus: true,
+      pregnancyMonths: 6,
+      gender: 'female',
+      summary: 'Pregnant woman, six months, with persistent abdominal discomfort.',
+      dangerSigns: [],
+      redFlags: [],
+      confidence: 0.81,
+    },
+    matchedDoctor: {
+      name: 'Kavita Ghosh',
+      specialty: 'Obstetrics & Gynaecology',
+      title: 'MBBS, MS',
+    },
+  },
+  {
+    worker: '+919700000001',
+    patient: '+919876543217',
+    channel: 'web' as const,
+    status: 'submitted' as const,
+    language: 'hi',
+    extraction: {
+      symptoms: ['cough', 'breathlessness'],
+      vitals: { spo2: 94, respRate: 22 },
+      duration: '4 days',
+      trend: 'worsening',
+      urgency: 'urgent',
+      suggestedSpecialty: 'General Medicine',
+      summary: 'Elderly male with productive cough and mild desaturation.',
+      dangerSigns: ['shortness of breath'],
+      redFlags: ['SpO2 below 95%'],
+      confidence: 0.9,
+    },
+  },
+  {
+    worker: '+919700000001',
+    patient: '+919876543218',
+    channel: 'voice' as const,
+    status: 'routed' as const,
+    language: 'bn',
+    subjectReachable: false,
+    extraction: {
+      symptoms: ['high fever', 'convulsions'],
+      vitals: { temperatureC: 40.1 },
+      duration: '6 hours',
+      trend: 'worsening',
+      urgency: 'emergency',
+      ageMonths: 18,
+      gender: 'female',
+      summary: 'Infant with high fever and convulsions — emergency routing.',
+      dangerSigns: ['convulsing', 'very high fever'],
+      redFlags: ['paediatric emergency'],
+      confidence: 0.93,
+    },
+    matchedDoctor: {
+      name: 'Sneha Iyer',
+      specialty: 'Pediatrics',
+      title: 'MBBS, MD',
+    },
+  },
+];
+
+const BULK_SYMPTOM_SETS = [
+  ['fever', 'chills'],
+  ['cough', 'sore throat'],
+  ['loose motions', 'dehydration'],
+  ['headache', 'dizziness'],
+  ['chest pain', 'palpitations'],
+  ['skin rash', 'itching'],
+  ['joint pain', 'swelling'],
+  ['burning urination'],
+  ['pregnancy check-up'],
+  ['malnutrition screening'],
+];
+
+async function dedupConversations(model: mongoose.Model<any>) {
+  const groups = await model
+    .aggregate<{ _id: mongoose.Types.ObjectId; ids: mongoose.Types.ObjectId[] }>([
+      { $group: { _id: '$patient', ids: { $push: '$_id' }, count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } },
+    ])
+    .exec();
+  for (const g of groups) {
+    const [, ...extra] = g.ids;
+    for (const id of extra) {
+      await model.deleteOne({ _id: id }).exec();
+      console.log(`  - deduped conversation ${String(id)}`);
+    }
+  }
+}
 
 async function ensureUser(
   phone: string,
@@ -500,6 +643,41 @@ async function main() {
     }),
     'appnotifications',
   );
+  const conversationModel = mongoose.model(
+    'Conversation',
+    new mongoose.Schema({
+      patient: mongoose.Schema.Types.ObjectId,
+      title: String,
+      language: String,
+      lastActivity: Date,
+    }),
+    'conversations',
+  );
+  const fieldReportModel = mongoose.model(
+    'FieldReport',
+    new mongoose.Schema({
+      worker: mongoose.Schema.Types.ObjectId,
+      patient: mongoose.Schema.Types.ObjectId,
+      channel: String,
+      language: String,
+      rawTranscript: String,
+      extraction: mongoose.Schema.Types.Mixed,
+      location: mongoose.Schema.Types.Mixed,
+      facility: mongoose.Schema.Types.ObjectId,
+      appointment: mongoose.Schema.Types.ObjectId,
+      prescription: mongoose.Schema.Types.ObjectId,
+      matchedDoctor: mongoose.Schema.Types.Mixed,
+      subjectReachable: Boolean,
+      consent: mongoose.Schema.Types.Mixed,
+      status: String,
+      aiError: String,
+      routingError: String,
+    }),
+    'fieldreports',
+  );
+
+  console.log('Deduping conversations (required before unique patient index)...');
+  await dedupConversations(conversationModel);
 
   // 0. Facilities - doctors reference them, so they come first
   const facilityIds = new Map<string, mongoose.Types.ObjectId>();
@@ -520,6 +698,7 @@ async function main() {
   const userIds = new Map<string, mongoose.Types.ObjectId>();
   const patientIds = new Map<string, mongoose.Types.ObjectId>();
   const doctorIds = new Map<string, mongoose.Types.ObjectId>();
+  const healthWorkerIds = new Map<string, mongoose.Types.ObjectId>();
 
   for (const u of USERS) {
     const user = await ensureUser(u.phone, u.name, u.role, userModel);
@@ -544,9 +723,9 @@ async function main() {
       }
       patientIds.set(u.phone, patient._id);
     } else if (u.role === 'health_worker') {
-      const exists = await healthWorkerModel.findOne({ user: user._id }).exec();
-      if (!exists) {
-        await healthWorkerModel.create({
+      let worker = await healthWorkerModel.findOne({ user: user._id }).exec();
+      if (!worker) {
+        worker = await healthWorkerModel.create({
           user: user._id,
           name: u.name,
           active: true,
@@ -554,6 +733,7 @@ async function main() {
         });
         console.log(`  + health worker ${u.name}`);
       }
+      healthWorkerIds.set(u.phone, worker._id);
     } else {
       const d = DOCTORS.find((x) => x.phone === u.phone)!;
       let doctor = await doctorModel.findOne({ user: user._id }).exec();
@@ -700,6 +880,144 @@ async function main() {
     }
   }
 
+  const workerId = healthWorkerIds.get('+919700000001');
+  const workerProfile = WORKERS['+919700000001'] as {
+    village: string;
+    block: string;
+    district: string;
+    coordinates: number[];
+  };
+  const defaultLocation = {
+    point: { type: 'Point', coordinates: workerProfile.coordinates },
+    source: 'assigned',
+    village: workerProfile.village,
+    block: workerProfile.block,
+    district: workerProfile.district,
+  };
+
+  // 4c. Field reports (ASHA worker screens)
+  for (const r of FIELD_REPORTS) {
+    const wid = healthWorkerIds.get(r.worker);
+    const pid = patientIds.get(r.patient);
+    if (!wid || !pid) continue;
+    const exists = await fieldReportModel
+      .findOne({
+        worker: wid,
+        patient: pid,
+        'extraction.summary': r.extraction.summary,
+      })
+      .exec();
+    if (exists) continue;
+
+    await fieldReportModel.create({
+      worker: wid,
+      patient: pid,
+      channel: r.channel,
+      language: r.language,
+      extraction: r.extraction,
+      location: defaultLocation,
+      facility: facilityIds.get('PHC Beldanga'),
+      matchedDoctor: r.matchedDoctor,
+      subjectReachable: r.subjectReachable ?? true,
+      consent: { basis: 'explicit', at: new Date() },
+      status: r.status,
+    });
+    console.log(`  + field report (${r.patient}, ${r.status})`);
+  }
+
+  // 4d. Bulk synthetic field reports for map/list density
+  if (BULK) {
+    if (!workerId) {
+      console.warn('  ! bulk skipped — ASHA worker profile missing');
+    } else {
+    const patientPhones = [...patientIds.keys()].filter((p) =>
+      p.startsWith('+919876'),
+    );
+    const urgencies = ['routine', 'semi-urgent', 'urgent', 'emergency'] as const;
+    let created = 0;
+    for (let i = 0; i < 48; i++) {
+      const patientPhone = patientPhones[i % patientPhones.length]!;
+      const pid = patientIds.get(patientPhone)!;
+      const symptoms = BULK_SYMPTOM_SETS[i % BULK_SYMPTOM_SETS.length]!;
+      const summary = `Bulk demo report #${i + 1}: ${symptoms.join(', ')}`;
+      const exists = await fieldReportModel
+        .findOne({ worker: workerId, patient: pid, 'extraction.summary': summary })
+        .exec();
+      if (exists) continue;
+
+      const lng = workerProfile.coordinates[0]! + (Math.random() - 0.5) * 0.08;
+      const lat = workerProfile.coordinates[1]! + (Math.random() - 0.5) * 0.08;
+
+      await fieldReportModel.create({
+        worker: workerId,
+        patient: pid,
+        channel: i % 3 === 0 ? 'voice' : 'web',
+        language: i % 2 === 0 ? 'bn' : 'hi',
+        extraction: {
+          symptoms,
+          vitals: {
+            temperatureC: 36.5 + (i % 5),
+            pulse: 70 + (i % 30),
+          },
+          duration: `${1 + (i % 7)} days`,
+          trend: ['better', 'same', 'worsening'][i % 3],
+          urgency: urgencies[i % urgencies.length],
+          suggestedSpecialty: 'General Medicine',
+          summary,
+          dangerSigns: i % 11 === 0 ? ['unable to feed'] : [],
+          redFlags: [],
+          confidence: 0.75 + (i % 20) / 100,
+        },
+        location: {
+          point: { type: 'Point', coordinates: [lng, lat] },
+          source: i % 4 === 0 ? 'gps' : 'assigned',
+          village: workerProfile.village,
+          block: workerProfile.block,
+          district: workerProfile.district,
+        },
+        facility: facilityIds.get('PHC Beldanga'),
+        matchedDoctor:
+          i % 5 === 0
+            ? {
+                name: 'Ananya Banerjee',
+                specialty: 'General Medicine',
+                title: 'MBBS, MD',
+              }
+            : undefined,
+        subjectReachable: i % 9 !== 0,
+        consent: { basis: 'explicit', at: new Date(Date.now() - i * 86_400_000) },
+        status: i % 7 === 0 ? 'submitted' : 'routed',
+      });
+      created++;
+    }
+    console.log(`  + ${created} bulk field reports`);
+    }
+  }
+
+  // 4e. A few assigned callbacks so the doctor queue is not empty
+  const assignedPairs = [
+    { patient: '+919876543210', doctor: '+919800000001' },
+    { patient: '+919876543213', doctor: '+919800000002' },
+  ];
+  for (const pair of assignedPairs) {
+    const pid = patientIds.get(pair.patient)!;
+    const did = doctorIds.get(pair.doctor)!;
+    const exists = await appointmentModel
+      .findOne({ patient: pid, status: 'assigned', doctor: did })
+      .exec();
+    if (!exists) {
+      await appointmentModel.create({
+        patient: pid,
+        doctor: did,
+        type: 'call-back',
+        status: 'assigned',
+        reason: 'Follow-up after field report',
+        aiNotes: { symptoms: ['follow-up'], recommendedAction: 'Doctor call-back' },
+      });
+      console.log(`  + assigned appointment (${pair.patient})`);
+    }
+  }
+
   // 5. Notify doctors of pending work
   const pendingCount = await verificationModel.countDocuments({
     status: 'pending',
@@ -733,6 +1051,7 @@ async function main() {
   console.log(`  Doctors: ${await doctorModel.countDocuments()}`);
   console.log(`  Health workers: ${await healthWorkerModel.countDocuments()}`);
   console.log(`  Facilities: ${await facilityModel.countDocuments()}`);
+  console.log(`  Field reports: ${await fieldReportModel.countDocuments()}`);
   console.log(`  Pending verification tasks: ${summary}`);
   console.log('\nAll accounts use password: demo123');
   console.log('  Patient demo: +919876543210  | Doctor demo: +919800000001');

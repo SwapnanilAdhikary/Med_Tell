@@ -11,6 +11,10 @@
     "dev": "concurrently -n backend,frontend -c blue,green \"npm run start:dev --workspace @iem-hacks/backend\" \"npm run dev --workspace @iem-hacks/frontend\"",
     "build:backend": "npm run build --workspace @iem-hacks/backend",
     "build:frontend": "npm run build --workspace @iem-hacks/frontend",
+    "seed": "npm run seed --workspace @iem-hacks/backend",
+    "seed:bulk": "npm run seed:bulk --workspace @iem-hacks/backend",
+    "vapi:setup:prod": "npm run vapi:setup:prod --workspace @iem-hacks/backend",
+    "vapi:setup:asha:prod": "npm run vapi:setup:asha:prod --workspace @iem-hacks/backend",
     "start:dev:backend": "npm run start:dev --workspace @iem-hacks/backend",
     "start:dev:frontend": "npm run dev --workspace @iem-hacks/frontend",
     "lint": "npm run lint --workspaces --if-present"
