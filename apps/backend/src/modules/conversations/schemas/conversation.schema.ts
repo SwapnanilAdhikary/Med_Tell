@@ -14,16 +14,16 @@ export class Conversation {
     index: true,
     unique: true,
   })
-  patient: Types.ObjectId;
+  patient!: Types.ObjectId;
 
   @Prop({ default: 'MedAssist Assistant' })
-  title: string;
+  title!: string;
 
   @Prop({ default: 'en' })
-  language: string;
+  language!: string;
 
   @Prop({ type: Date, default: Date.now, index: true })
-  lastActivity: Date;
+  lastActivity!: Date;
 
   /**
    * A doctor has taken this thread over. While set, the AI must not answer -
