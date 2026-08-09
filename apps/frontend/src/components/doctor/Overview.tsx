@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import type { Appointment, CallSession } from '../../api/types'
+import { refName } from '../../names'
 
 interface Overview {
   patients: number
@@ -61,7 +62,7 @@ export function DoctorOverview() {
               <div style={{ fontSize: 20, flex: 'none' }}>📅</div>
               <div className="item-main">
                 <div className="item-title">
-                  {typeof a.patient === 'object' ? a.patient.name : 'Patient'} · {a.status}
+                  {refName(a.patient)} · {a.status}
                 </div>
                 {a.reason && <div className="item-desc">{a.reason}</div>}
               </div>
@@ -81,7 +82,7 @@ export function DoctorOverview() {
               <div style={{ fontSize: 20, flex: 'none' }}>📞</div>
               <div className="item-main">
                 <div className="item-title">
-                  {typeof c.patient === 'object' ? c.patient.name : c.phoneNumber ?? 'Call'} ·{' '}
+                  {refName(c.patient, c.phoneNumber ?? 'Call')} ·{' '}
                   {String(c.summary?.recommendedAction ?? c.status)}
                 </div>
                 {typeof c.summary?.summary === 'string' && (

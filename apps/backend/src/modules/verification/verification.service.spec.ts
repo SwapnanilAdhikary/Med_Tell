@@ -5,6 +5,7 @@ import { VerificationService } from './verification.service';
 import { VerificationTask } from './schemas/verification-task.schema';
 import { DocumentsService } from '../documents/documents.service';
 import { CertificatesService } from '../certificates/certificates.service';
+import { PrescriptionsService } from '../prescriptions/prescriptions.service';
 import { PatientsService } from '../patients/patients.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -40,6 +41,10 @@ describe('VerificationService', () => {
     issue: jest.fn(),
     reject: jest.fn(),
   };
+  const prescriptionsService = {
+    issue: jest.fn(),
+    reject: jest.fn(),
+  };
   const patientsService = {
     findById: jest.fn().mockResolvedValue({ user: 'user-1' }),
   };
@@ -62,6 +67,7 @@ describe('VerificationService', () => {
         { provide: getModelToken(VerificationTask.name), useValue: taskModel },
         { provide: DocumentsService, useValue: documentsService },
         { provide: CertificatesService, useValue: certificatesService },
+        { provide: PrescriptionsService, useValue: prescriptionsService },
         { provide: PatientsService, useValue: patientsService },
         { provide: NotificationsService, useValue: notificationsService },
       ],
@@ -151,6 +157,84 @@ describe('VerificationService', () => {
         expect.objectContaining({ user: 'user-1', type: 'verification' }),
       );
       expect(task.status).toBe('approved');
+    });
+  });
+
+  describe('prescription tasks', () => {
+    const EDIT = {
+      items: [{ name: 'Amoxicillin', dose: '500 mg', durationDays: 5 }],
+    };
+
+    it('issues with no edit on a plain approve, so issue() falls back to draftItems', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+      prescriptionsService.issue.mockResolvedValue({});
+
+      const result = (await service.approve(
+        'task-1',
+        'doctor-1',
+      )) as unknown as Record<string, unknown>;
+
+      expect(prescriptionsService.issue).toHaveBeenCalledWith(
+        'rx-1',
+        'doctor-1',
+        undefined,
+      );
+      // The catch-all else must not have fired: no "a doctor reviewed your
+      // call" for a prescription.
+      expect(notificationsService.create).not.toHaveBeenCalled();
+      expect(result.status).toBe('approved');
+    });
+
+    it('persists doctorEdit, signs the edit, and marks the task edited', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+      prescriptionsService.issue.mockResolvedValue({});
+
+      const result = (await service.approveWithEdit(
+        'task-1',
+        'doctor-1',
+        EDIT,
+        'swapped the antibiotic',
+      )) as unknown as Record<string, unknown>;
+
+      expect(prescriptionsService.issue).toHaveBeenCalledWith(
+        'rx-1',
+        'doctor-1',
+        EDIT,
+      );
+      expect(result.doctorEdit).toEqual(EDIT);
+      expect(result.status).toBe('edited');
+      expect(result.doctorComment).toBe('swapped the antibiotic');
+    });
+
+    it('leaves the task pending when signing fails, so it can be re-decided', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+      prescriptionsService.issue.mockRejectedValue(
+        new Error('no registration number'),
+      );
+
+      await expect(
+        service.approveWithEdit('task-1', 'doctor-1', EDIT),
+      ).rejects.toThrow('no registration number');
+
+      expect(task.status).toBe('pending');
+      expect(task.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects through the prescriptions service, not the catch-all', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+
+      await service.reject('task-1', 'doctor-1', 'wrong drug');
+
+      expect(prescriptionsService.reject).toHaveBeenCalledWith(
+        'rx-1',
+        'doctor-1',
+        'wrong drug',
+      );
+      expect(task.status).toBe('rejected');
     });
   });
 

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import type { VerificationTask } from '../../api/types'
+import { PrescriptionTask } from './PrescriptionTask'
+import type { RxRender } from './PrescriptionTask'
+import { refName } from '../../names'
 
 interface TaskWithRef extends VerificationTask {
   resolved?: {
@@ -22,8 +25,19 @@ interface TaskWithRef extends VerificationTask {
 const TASK_LABEL: Record<string, string> = {
   document: 'Medical document',
   certificate: 'Certificate',
+  prescription: 'AI-drafted prescription',
   'call-note': 'AI call notes',
   appointment: 'Appointment',
+}
+
+// A record, not a nested ternary: a new task type used to fall through to '📞'
+// and the doctor saw an unlabelled phone card with no drug list.
+const TASK_ICON: Record<string, string> = {
+  document: '🩺',
+  certificate: '📄',
+  prescription: '💊',
+  'call-note': '📞',
+  appointment: '📅',
 }
 
 export function Verification() {
@@ -45,15 +59,21 @@ export function Verification() {
     load()
   }, [load])
 
-  const decide = async (id: string, decision: 'approve' | 'reject') => {
+  const post = async (id: string, path: string, body: Record<string, unknown>) => {
     setBusyId(id)
-    await api(`/api/verification/${id}/${decision}`, {
-      method: 'POST',
-      body: JSON.stringify({ comment: comment[id] || undefined }),
-    })
-    setBusyId('')
-    load()
+    try {
+      await api(`/api/verification/${id}/${path}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      await load()
+    } finally {
+      setBusyId('')
+    }
   }
+
+  const decide = (id: string, decision: 'approve' | 'reject') =>
+    post(id, decision, { comment: comment[id] || undefined })
 
   const resolveTask = (t: TaskWithRef): TaskWithRef['resolved'] => {
     if (t.taskType === 'document') {
@@ -87,7 +107,7 @@ export function Verification() {
     return undefined
   }
 
-  const name = (t: TaskWithRef) => (typeof t.patient === 'object' ? t.patient.name : 'Patient')
+  const name = (t: TaskWithRef) => refName(t.patient)
 
   return (
     <div className="content">
@@ -109,11 +129,30 @@ export function Verification() {
         )}
         {items.map((t) => {
           const r = resolveTask(t)
+          const icon = (
+            <div style={{ fontSize: 22, flex: 'none' }}>{TASK_ICON[t.taskType] ?? '📋'}</div>
+          )
+
+          if (t.taskType === 'prescription') {
+            return (
+              <div key={t._id} className="item">
+                {icon}
+                <PrescriptionTask
+                  render={(t.aiOutput ?? {}) as RxRender}
+                  busy={busyId === t._id}
+                  onApprove={(c) => post(t._id, 'approve', { comment: c })}
+                  onApproveEdited={(rxItems, c) =>
+                    post(t._id, 'approve-edited', { items: rxItems, comment: c })
+                  }
+                  onReject={(c) => post(t._id, 'reject', { comment: c })}
+                />
+              </div>
+            )
+          }
+
           return (
             <div key={t._id} className="item">
-              <div style={{ fontSize: 22, flex: 'none' }}>
-                {t.taskType === 'document' ? '🩺' : t.taskType === 'certificate' ? '📄' : '📞'}
-              </div>
+              {icon}
               <div className="item-main">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span className="item-title">{TASK_LABEL[t.taskType]}</span>

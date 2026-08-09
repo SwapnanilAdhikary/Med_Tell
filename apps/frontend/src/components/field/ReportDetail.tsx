@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { api } from '../../api/client'
-import type { FieldReport } from '../../api/types'
+import { api, openAuthedFile } from '../../api/client'
+import type { FieldReport, SignedPrescription } from '../../api/types'
 import { ageLabel, subjectName, vitalLines } from './labels'
 import { GeoChip, StatusPill, UrgencyPill } from './pills'
 
@@ -9,10 +9,16 @@ function facilityOf(report: FieldReport) {
   return report.facility && typeof report.facility !== 'string' ? report.facility : null
 }
 
+function prescriptionOf(report: FieldReport): SignedPrescription | null {
+  const rx = report.prescription
+  return rx && typeof rx !== 'string' ? rx : null
+}
+
 export function ReportDetail() {
   const { id } = useParams<{ id: string }>()
   const [report, setReport] = useState<FieldReport | null>(null)
   const [error, setError] = useState('')
+  const [pdfError, setPdfError] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -47,6 +53,7 @@ export function ReportDetail() {
   const e = report.extraction
   const vitals = vitalLines(e.vitals)
   const facility = facilityOf(report)
+  const rx = prescriptionOf(report)
   const point = report.location.point?.coordinates
 
   return (
@@ -145,10 +152,63 @@ export function ReportDetail() {
             <div className="item-desc">
               Sent to Dr. {report.matchedDoctor.name} ({report.matchedDoctor.specialty}).
             </div>
-            <div className="empty-state">
-              <div className="empty-title">Waiting for the doctor</div>
-              <div>You will see their reply here as soon as they review this report.</div>
-            </div>
+            {rx?.status === 'issued' ? (
+              <>
+                <div className="pill pill-success" style={{ marginTop: 10 }}>
+                  Prescription signed
+                </div>
+                <ol className="rx-read">
+                  {(rx.items ?? []).map((item, i) => (
+                    <li key={`${item.name}-${i}`}>
+                      <strong>{item.name}</strong>
+                      {[
+                        item.dose,
+                        item.frequency,
+                        item.durationDays != null ? `${item.durationDays} days` : '',
+                        item.instructions,
+                      ]
+                        .filter(Boolean)
+                        .map((token) => (
+                          <span key={token} className="rx-token">
+                            {token}
+                          </span>
+                        ))}
+                    </li>
+                  ))}
+                </ol>
+                {rx.signedBy && <div className="item-meta">{rx.signedBy}</div>}
+                <button
+                  className="btn btn-primary"
+                  style={{ marginTop: 12 }}
+                  onClick={() => {
+                    setPdfError('')
+                    openAuthedFile(`/api/field-reports/${report._id}/prescription/pdf`).catch(
+                      (e) => setPdfError(e instanceof Error ? e.message : 'Download failed'),
+                    )
+                  }}
+                >
+                  Download the PDF
+                </button>
+                {pdfError && <div className="form-error">{pdfError}</div>}
+                <div className="item-meta" style={{ marginTop: 8 }}>
+                  Read this out to the household and hand them the PDF. Do not change the
+                  doses.
+                </div>
+              </>
+            ) : rx?.status === 'rejected' ? (
+              <div className="empty-state">
+                <div className="empty-title">No prescription</div>
+                <div>
+                  The doctor did not approve a prescription for this case. Check your
+                  notifications for their reason.
+                </div>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-title">Waiting for the doctor</div>
+                <div>You will see their reply here as soon as they review this report.</div>
+              </div>
+            )}
           </>
         ) : (
           <div className="empty-state">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { MedicalDocument } from '../api/types'
+import { refName } from '../names'
 
 function StatusPill({ status }: { status: MedicalDocument['status'] }) {
   const map: Record<string, { cls: string; label: string }> = {
@@ -15,8 +16,9 @@ function StatusPill({ status }: { status: MedicalDocument['status'] }) {
 }
 
 function PatientName({ doc }: { doc: MedicalDocument }) {
-  if (typeof doc.patient === 'string') return null
-  return <span> · {doc.patient.name}</span>
+  const name = refName(doc.patient, '')
+  if (!name) return null
+  return <span> · {name}</span>
 }
 
 export function Uploads() {

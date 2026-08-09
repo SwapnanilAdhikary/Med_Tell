@@ -445,6 +445,9 @@ export class FieldReportsService {
         patientId: report.patient,
         fieldReportId: report._id,
         consultMode: 'teleconsult',
+        // No phone in the household means no account to log into, so the
+        // signed prescription goes to the worker who filed it.
+        ...(report.subjectReachable ? {} : { notifyUser: worker.user }),
         clinical: {
           symptoms: e.symptoms,
           vitals: e.vitals,
@@ -473,6 +476,10 @@ export class FieldReportsService {
           },
           geo: {
             source: report.location.source,
+            accuracyM: report.location.accuracyM,
+            // [lng, lat] on the way out too - the doctor's card builds a maps
+            // link from this and swapping them lands it in the wrong hemisphere.
+            coordinates: report.location.point?.coordinates,
             village: report.location.village,
             block: report.location.block,
             district: report.location.district,
@@ -639,11 +646,32 @@ export class FieldReportsService {
       .findById(id)
       .populate('facility')
       .populate('patient', 'name')
+      // What the doctor signed, and nothing else. draftItems and councilOutput
+      // are the AI's rejected proposal - an audit record for the doctor, not
+      // something to read out to a household.
+      .populate('prescription', 'status items signedBy issuedAt consultMode')
       .exec();
     // 404 rather than 403: a worker must not learn that someone else's report id exists.
     if (!report || String(report.worker) !== String(workerId)) {
       throw new NotFoundException('Field report not found');
     }
     return report;
+  }
+
+  /** Ownership is "you filed the report", checked by findForWorker. */
+  async prescriptionPdfPath(
+    workerId: string | undefined,
+    reportId: string,
+  ): Promise<string> {
+    const report = await this.findForWorker(workerId, reportId);
+    if (!report.prescription) {
+      throw new NotFoundException('No prescription for this report');
+    }
+    // populate() replaced the id with a document, so read the id back off it.
+    const id = String(
+      (report.prescription as unknown as { _id?: unknown })._id ??
+        report.prescription,
+    );
+    return this.prescriptionsService.pdfPath(id);
   }
 }
