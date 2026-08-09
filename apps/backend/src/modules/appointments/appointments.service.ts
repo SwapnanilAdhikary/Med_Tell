@@ -246,21 +246,27 @@ export class AppointmentsService {
   }
 
   async assign(doctorId: string | Types.ObjectId, appointmentId: string) {
+    // Atomic claim: only an appointment still `requested` may be taken, so two
+    // concurrent assigns cannot both succeed. `{ new: true }` returns the
+    // updated document if the filter matched, or `null` otherwise.
     const appointment = await this.appointmentModel
-      .findById(appointmentId)
+      .findOneAndUpdate(
+        { _id: appointmentId, status: 'requested' },
+        { doctor: doctorId, status: 'assigned' },
+        { new: true },
+      )
       .exec();
-    if (!appointment) throw new NotFoundException('Appointment not found');
-    if (appointment.status !== 'requested') {
+
+    if (!appointment) {
+      // Distinguish "never existed" (404) from "already claimed" (400).
+      const exists = await this.appointmentModel.exists({
+        _id: appointmentId,
+      });
+      if (!exists) throw new NotFoundException('Appointment not found');
       throw new BadRequestException('This case has already been claimed');
     }
 
-    appointment.doctor = doctorId as Types.ObjectId;
-    appointment.status = 'assigned';
-    await appointment.save();
-
-    const doctor = await this.doctorsService
-      .findById(doctorId)
-      .catch(() => null);
+    const doctor = await this.doctorsService.findById(doctorId).catch(() => null);
     const patient = await this.patientsService.findById(appointment.patient);
 
     await this.notificationsService.create({
