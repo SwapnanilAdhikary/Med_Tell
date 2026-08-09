@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
-  "installCommand": "npm install",
+  "buildCommand": "cd ../.. && npm run build --workspace @iem-hacks/backend",
+  "installCommand": "cd ../.. && npm install --include=dev",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
