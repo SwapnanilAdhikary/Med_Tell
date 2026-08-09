@@ -10,6 +10,7 @@ import { HealthWorkersService } from '../health-workers/health-workers.service';
 import { FacilitiesService } from '../facilities/facilities.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { FieldNotesService } from '../field-notes/field-notes.service';
+import { PrescriptionsService } from '../prescriptions/prescriptions.service';
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/require-await, @typescript-eslint/unbound-method */
 
@@ -60,6 +61,7 @@ describe('FieldReportsService', () => {
   const facilitiesService = { findNearest: jest.fn() };
   const appointmentsService = { book: jest.fn() };
   const fieldNotesService = { create: jest.fn() };
+  const prescriptionsService = { request: jest.fn() };
 
   /** The document handed to reportModel.create. */
   const createdWith = () => reportModel.create.mock.calls[0][0];
@@ -82,6 +84,7 @@ describe('FieldReportsService', () => {
       appointment: { _id: 'appt-1' },
       doctor: { name: 'Ananya Banerjee', specialty: 'General Medicine' },
     });
+    prescriptionsService.request.mockResolvedValue({ _id: 'rx-1' });
     // Echo the created document so the service can mutate and save it.
     reportModel.create.mockImplementation(async (doc: object) => ({
       ...doc,
@@ -99,6 +102,7 @@ describe('FieldReportsService', () => {
         { provide: FacilitiesService, useValue: facilitiesService },
         { provide: AppointmentsService, useValue: appointmentsService },
         { provide: FieldNotesService, useValue: fieldNotesService },
+        { provide: PrescriptionsService, useValue: prescriptionsService },
       ],
     }).compile();
 
@@ -415,6 +419,45 @@ describe('FieldReportsService', () => {
         input({ vitals: { temperatureC: 39.2, spo2: 94 } }),
       );
       expect(bookedWith().vitals).toEqual(['temp 39.2 °C', 'SpO2 94%']);
+    });
+
+    it('drafts a council prescription for a simple illness', async () => {
+      const report = await service.submit(
+        'worker-1',
+        input({
+          subject: { name: 'Sita Devi', phone: '+919555512345', ageYears: 34 },
+          symptoms: ['fever'],
+        }),
+      );
+
+      expect(prescriptionsService.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          patientId: 'patient-1',
+          fieldReportId: 'report-1',
+          consultMode: 'teleconsult',
+        }),
+      );
+      expect(report.prescription).toBe('rx-1');
+      expect(report.status).toBe('routed');
+    });
+
+    it('does not draft when the case escalated to in-person', async () => {
+      aiService.extractFieldReport.mockResolvedValue({
+        ...EMPTY_EXTRACTION,
+        urgency: 'urgent',
+      });
+      await service.submit('worker-1', input());
+      expect(bookedWith().type).toBe('in-person');
+      expect(prescriptionsService.request).not.toHaveBeenCalled();
+    });
+
+    it('keeps the report routed when the council fails', async () => {
+      prescriptionsService.request.mockRejectedValue(new Error('429 rate limit'));
+
+      const report = await service.submit('worker-1', input());
+
+      expect(report.status).toBe('routed');
+      expect(report.prescription).toBeUndefined();
     });
   });
 

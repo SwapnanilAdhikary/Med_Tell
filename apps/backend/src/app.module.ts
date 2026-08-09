@@ -14,6 +14,7 @@ import { FieldReportsModule } from './modules/field-reports/field-reports.module
 import { FieldNotesModule } from './modules/field-notes/field-notes.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CertificatesModule } from './modules/certificates/certificates.module';
+import { PrescriptionsModule } from './modules/prescriptions/prescriptions.module';
 import { VerificationModule } from './modules/verification/verification.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -33,6 +34,7 @@ import { AdminModule } from './modules/admin/admin.module';
     FieldNotesModule,
     DocumentsModule,
     CertificatesModule,
+    PrescriptionsModule,
     VerificationModule,
     NotificationsModule,
     AdminModule,

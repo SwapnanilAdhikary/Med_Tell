@@ -20,6 +20,7 @@ import { HealthWorkersService } from '../health-workers/health-workers.service';
 import { FacilitiesService } from '../facilities/facilities.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { FieldNotesService } from '../field-notes/field-notes.service';
+import { PrescriptionsService } from '../prescriptions/prescriptions.service';
 import type { HealthWorkerDocument } from '../health-workers/schemas/health-worker.schema';
 import { idFilter } from '../../common/mongoose.util';
 
@@ -142,6 +143,7 @@ export class FieldReportsService {
     private readonly facilitiesService: FacilitiesService,
     private readonly appointmentsService: AppointmentsService,
     private readonly fieldNotesService: FieldNotesService,
+    private readonly prescriptionsService: PrescriptionsService,
   ) {}
 
   /**
@@ -373,6 +375,7 @@ export class FieldReportsService {
     workerPhone?: string,
   ) {
     try {
+      const escalated = isInPerson(e.urgency, facilityId);
       const { appointment, doctor } = await this.appointmentsService.book({
         patientId: report.patient,
         reason:
@@ -384,7 +387,7 @@ export class FieldReportsService {
         symptoms: e.symptoms,
         urgency: e.urgency,
         vitals: this.vitalLines(e.vitals),
-        type: isInPerson(e.urgency, facilityId) ? 'in-person' : 'call-back',
+        type: escalated ? 'in-person' : 'call-back',
         facility: facilityId,
         aiNotes: { fieldReportId: report._id.toString(), ...e },
         reportedBy: {
@@ -409,6 +412,12 @@ export class FieldReportsService {
         };
       }
       report.status = 'routed';
+
+      // A simple (non-escalated) illness gets the AI council draft. Escalated
+      // cases need a body in a room, so no remote prescription is drafted.
+      if (!escalated) {
+        await this.tryDraftPrescription(report, e, worker, facilityName);
+      }
     } catch (error) {
       report.routingError = (error as Error).message;
       report.status = 'failed';
@@ -417,6 +426,66 @@ export class FieldReportsService {
       );
     }
     await report.save();
+  }
+
+  /**
+   * Best-effort, strictly last: a bad minute from the council must not unroute
+   * a report that already reached a doctor. The draft is queued for the
+   * doctor's verification queue; failure just means the doctor reads the raw
+   * worker notes instead.
+   */
+  private async tryDraftPrescription(
+    report: FieldReportDocument,
+    e: MergedExtraction,
+    worker: HealthWorkerDocument,
+    facilityName?: string,
+  ) {
+    try {
+      const prescription = await this.prescriptionsService.request({
+        patientId: report.patient,
+        fieldReportId: report._id,
+        consultMode: 'teleconsult',
+        clinical: {
+          symptoms: e.symptoms,
+          vitals: e.vitals,
+          suspectedCondition: e.suspectedCondition,
+          duration: e.duration,
+          urgency: e.urgency,
+          summary: e.summary,
+          ageYears:
+            e.ageMonths != null ? Math.round(e.ageMonths / 12) : undefined,
+          ageMonths: e.ageMonths,
+          gender: e.gender,
+          pregnant: e.pregnancyStatus,
+          pregnancyMonths: e.pregnancyMonths,
+        },
+        render: {
+          symptoms: e.symptoms,
+          vitals: e.vitals,
+          dangerSigns: e.dangerSigns,
+          urgency: e.urgency,
+          suspectedCondition: e.suspectedCondition,
+          reportedBy: {
+            workerName: worker.name,
+            cadre: worker.cadre,
+            village: report.location.village,
+            facilityName,
+          },
+          geo: {
+            source: report.location.source,
+            village: report.location.village,
+            block: report.location.block,
+            district: report.location.district,
+          },
+          matchedDoctor: report.matchedDoctor,
+        },
+      });
+      report.prescription = prescription._id;
+    } catch (error) {
+      this.logger.warn(
+        `Prescription council failed for report ${report._id.toString()}: ${(error as Error).message}`,
+      );
+    }
   }
 
   /** ponytail: a demo heuristic, not a triage protocol. */

@@ -25,6 +25,7 @@ Thumbs.db
 # Never commit these; the seed regenerates its placeholders.
 apps/backend/uploads/
 apps/backend/certificates/
+apps/backend/prescriptions/
 
 # Throwaway probe/debug scripts - never committed
 scratch/

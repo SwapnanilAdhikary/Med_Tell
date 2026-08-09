@@ -117,6 +117,9 @@ export class FieldReport {
   @Prop({ type: Types.ObjectId, ref: 'Appointment' })
   appointment?: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'Prescription' })
+  prescription?: Types.ObjectId;
+
   /** Denormalised so the worker's screens need no populate and no doctor route. */
   @Prop({ type: Object })
   matchedDoctor?: { name: string; specialty: string; title?: string };
