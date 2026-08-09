@@ -178,6 +178,16 @@ export function Chat() {
   }, [loadHistory])
 
   useEffect(() => {
+    // A doctor can write into this thread at any time, and there are no sockets.
+    // Skipped while a send is in flight: the optimistic user message and the
+    // typed-out reply are local-only until finishReply, so refetching mid-send
+    // would wipe them off the screen.
+    if (busy || pendingReply) return
+    const t = setInterval(() => void loadHistory(), 12000)
+    return () => clearInterval(t)
+  }, [loadHistory, busy, pendingReply])
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, pendingReply])
 
@@ -366,7 +376,12 @@ export function Chat() {
         )}
         {messages.map((m) => (
           <div key={m._id} className={`msg ${m.role === 'user' ? 'msg-user' : 'msg-ai'}`}>
-            <div className="msg-bubble">
+            <div className={`msg-bubble${m.metadata?.author === 'doctor' ? ' msg-doctor' : ''}`}>
+              {m.metadata?.author === 'doctor' && (
+                <div className="msg-author">
+                  Dr. {m.metadata.doctorName ?? 'your doctor'}
+                </div>
+              )}
               <div className="msg-text">{m.content}</div>
               <div className="msg-meta">
                 <span className="msg-time">{fmtTime(m.createdAt)}</span>

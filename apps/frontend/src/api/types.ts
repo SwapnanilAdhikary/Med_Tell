@@ -147,7 +147,15 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   attachments?: unknown[]
-  metadata?: { actions?: ChatAction[]; source?: string }
+  metadata?: {
+    actions?: ChatAction[]
+    source?: string
+    /** Written by a doctor, stored as `assistant` so the model sees it too. */
+    author?: 'doctor'
+    doctorName?: string
+    /** The fixed line sent while a doctor holds the thread. */
+    handoff?: boolean
+  }
   createdAt: string
 }
 

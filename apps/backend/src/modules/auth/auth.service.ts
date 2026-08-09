@@ -44,6 +44,33 @@ function isPlaceholderName(name?: string): boolean {
   return /^Caller \d+$/.test(name ?? '');
 }
 
+/**
+ * Indian mobile numbers to one canonical form, so the same person entered as
+ * `9876543211`, `09876543211`, `919876543211` or `+91 98765 43211` resolves to
+ * ONE patient. Without this, a worker typing a number differently from the way
+ * the patient registered silently created a second record, and a doctor's chat
+ * went to the copy nobody can log into.
+ *
+ * Anything that is not a recognisable 10-digit Indian mobile is left alone -
+ * synthetic `local:` keys and foreign numbers must pass through untouched.
+ */
+export function canonicalPhone(phone: string): string {
+  if (!phone || phone.startsWith('local:')) return phone;
+  const digits = phone.replace(/\D/g, '');
+  const national =
+    digits.length === 10
+      ? digits
+      : digits.length === 11 && digits.startsWith('0')
+        ? digits.slice(1)
+        : digits.length === 12 && digits.startsWith('91')
+          ? digits.slice(2)
+          : digits.length === 13 && digits.startsWith('091')
+            ? digits.slice(3)
+            : '';
+  // Indian mobiles start 6-9. Anything else is not a number we can normalise.
+  return /^[6-9]\d{9}$/.test(national) ? `+91${national}` : phone;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -105,6 +132,10 @@ export class AuthService {
     return this.userModel.findOne({ phone }).exec();
   }
 
+  async findUserById(userId: string): Promise<UserDocument | null> {
+    return this.userModel.findById(userId).exec();
+  }
+
   async patientIdForUser(userId: string): Promise<string | null> {
     const patient = await this.patientsService.findByUser(userId);
     return patient ? patient._id.toString() : null;
@@ -120,10 +151,17 @@ export class AuthService {
    * the web app. OTP login is the upgrade path.
    */
   async findOrCreatePatientByPhone(
-    phone: string,
+    rawPhone: string,
     profile?: { name?: string; language?: string },
   ): Promise<{ patientId: string; userId: string; created: boolean }> {
-    const existing = await this.userModel.findOne({ phone }).exec();
+    const phone = canonicalPhone(rawPhone);
+    // Both forms: existing rows were written before normalisation, so looking
+    // up only the canonical one would create a duplicate of every one of them.
+    const existing = await this.userModel
+      .findOne(
+        phone === rawPhone ? { phone } : { phone: { $in: [phone, rawPhone] } },
+      )
+      .exec();
     if (existing) return this.patientForUser(existing, profile);
 
     const name = profile?.name ?? placeholderName(phone);
@@ -151,7 +189,13 @@ export class AuthService {
     } catch (err) {
       // A resent Vapi webhook races with itself; the unique index is the winner.
       if ((err as { code?: number }).code !== 11000) throw err;
-      const raced = await this.userModel.findOne({ phone }).exec();
+      const raced = await this.userModel
+        .findOne(
+          phone === rawPhone
+            ? { phone }
+            : { phone: { $in: [phone, rawPhone] } },
+        )
+        .exec();
       if (!raced) throw err;
       return this.patientForUser(raced, profile);
     }

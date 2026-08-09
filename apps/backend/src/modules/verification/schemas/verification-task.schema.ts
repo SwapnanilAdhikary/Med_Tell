@@ -2,11 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 export type VerificationTaskType =
-  | 'document'
-  | 'certificate'
-  | 'prescription'
-  | 'call-note'
-  | 'appointment';
+  'document' | 'certificate' | 'prescription' | 'call-note' | 'appointment';
 
 export type VerificationDecision =
   'pending' | 'approved' | 'edited' | 'rejected';
@@ -17,7 +13,13 @@ export type VerificationTaskDocument = HydratedDocument<VerificationTask>;
 export class VerificationTask {
   @Prop({
     type: String,
-    enum: ['document', 'certificate', 'prescription', 'call-note', 'appointment'],
+    enum: [
+      'document',
+      'certificate',
+      'prescription',
+      'call-note',
+      'appointment',
+    ],
     required: true,
   })
   taskType: VerificationTaskType;

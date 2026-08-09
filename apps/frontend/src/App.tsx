@@ -13,6 +13,7 @@ import { DoctorOverview } from './components/doctor/Overview'
 import { CallBacks } from './components/doctor/CallBacks'
 import { Verification } from './components/doctor/Verification'
 import { Records } from './components/doctor/Records'
+import { PatientChat } from './components/doctor/PatientChat'
 import { Landing } from './components/Landing'
 import { Login } from './components/Login'
 import { NewReport } from './components/field/NewReport'
@@ -99,6 +100,7 @@ function App() {
             <Route path="/doctor/callbacks" element={<CallBacks />} />
             <Route path="/doctor/verify" element={<Verification />} />
             <Route path="/doctor/records" element={<Records />} />
+            <Route path="/doctor/chat/:patientId" element={<PatientChat />} />
           </Route>
           <Route
             element={

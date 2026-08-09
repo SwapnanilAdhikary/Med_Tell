@@ -3,6 +3,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -16,6 +17,7 @@ import { CertificatesService } from '../certificates/certificates.service';
 import { PrescriptionsService } from '../prescriptions/prescriptions.service';
 import { PatientsService } from '../patients/patients.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ConversationsService } from '../conversations/conversations.service';
 import { idFilter } from '../../common/mongoose.util';
 
 @Injectable()
@@ -31,7 +33,10 @@ export class VerificationService {
     private readonly prescriptionsService: PrescriptionsService,
     private readonly patientsService: PatientsService,
     private readonly notificationsService: NotificationsService,
+    private readonly conversationsService: ConversationsService,
   ) {}
+
+  private readonly logger = new Logger(VerificationService.name);
 
   async create(input: {
     taskType: VerificationTaskType;
@@ -131,6 +136,14 @@ export class VerificationService {
       // Mirrors applyDecision's branch. Deliberately NOT unified with it:
       // applyDecision's else notifies the patient and this switch must not.
       await this.prescriptionsService.reject(task.refId, doctorId, comment);
+      // A rejected prescription is the one case where the patient needs a
+      // person, not a draft. Opening the handoff also stops the assistant
+      // answering clinical questions the doctor just declined to answer.
+      await this.conversationsService
+        .setHandoff(task.patient, doctorId)
+        .catch((err: Error) =>
+          this.logger.warn(`Could not open the chat handoff: ${err.message}`),
+        );
     }
     task.status = 'rejected';
     await task.save();
