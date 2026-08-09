@@ -293,3 +293,39 @@ describe('AiService.extractFieldReport', () => {
     expect(result.symptoms).toEqual(['fever']);
   });
 });
+
+describe('AiService.extractJson', () => {
+  let service: AiService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AiService,
+        {
+          provide: ConfigService,
+          useValue: { get: (_k: string, d?: string) => d ?? '' },
+        },
+      ],
+    }).compile();
+
+    service = module.get(AiService);
+  });
+
+  it('handles greedy brace matching correctly', () => {
+    // @ts-ignore — accessing private method for testing
+    const result = service.extractJson('Here is {"a": 1} and also {"b": 2}');
+    // Should extract just the first complete object, not everything between first { and last }
+    expect(() => JSON.parse(result)).not.toThrow();
+  });
+
+  it('returns {} when no braces found', () => {
+    // @ts-ignore
+    expect(service.extractJson('no json here')).toBe('{}');
+  });
+
+  it('handles nested braces', () => {
+    // @ts-ignore
+    const result = service.extractJson('text {"a": {"b": 1}} more');
+    expect(JSON.parse(result)).toEqual({ a: { b: 1 } });
+  });
+});

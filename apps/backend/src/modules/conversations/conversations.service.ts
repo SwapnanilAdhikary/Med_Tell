@@ -28,11 +28,30 @@ export class ConversationsService {
     let conversation = await this.conversationModel
       .findOne(idFilter('patient', patientId))
       .exec();
-    if (!conversation) {
+
+    if (conversation) return conversation;
+
+    try {
       conversation = await this.conversationModel.create({
         patient: patientId,
       });
+    } catch (e: any) {
+      // Another request created the conversation first.
+      if (e.code === 11000) {
+        conversation = await this.conversationModel
+          .findOne(idFilter('patient', patientId))
+          .exec();
+
+        if (!conversation) {
+          throw e;
+        }
+
+        return conversation;
+      }
+
+      throw e;
     }
+
     return conversation;
   }
 

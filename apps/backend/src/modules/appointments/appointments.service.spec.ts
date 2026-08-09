@@ -5,6 +5,7 @@ import { Appointment } from './schemas/appointment.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PatientsService } from '../patients/patients.service';
 import { DoctorsService } from '../doctors/doctors.service';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 
@@ -255,6 +256,105 @@ describe('AppointmentsService.book', () => {
     it('drops empty vitals from the brief', async () => {
       await service.book({ ...fieldInput, vitals: [] });
       expect(doctorNote().body).not.toContain('Vitals');
+    });
+  });
+});
+
+describe('AppointmentsService.assign', () => {
+  let service: AppointmentsService;
+  let module: TestingModule;
+  let appointmentModel: any;
+
+  const mockAppointment = (overrides: Record<string, any> = {}) => ({
+    _id: 'apt-1',
+    patient: 'pat-1',
+    doctor: null,
+    status: 'requested',
+    callBackJob: { preferredWindow: 'today' },
+    save: jest.fn().mockResolvedValue(true),
+    populate: jest.fn().mockReturnThis(),
+    toObject: jest.fn().mockReturnThis(),
+    ...overrides,
+  });
+
+  beforeEach(async () => {
+    appointmentModel = {
+      find: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockReturnThis(),
+      findById: jest.fn().mockReturnThis(),
+      findByIdAndUpdate: jest.fn().mockReturnThis(),
+      findOneAndUpdate: jest.fn().mockReturnThis(),
+      exists: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockReturnThis(),
+      exec: jest.fn(),
+      countDocuments: jest.fn().mockResolvedValue(0),
+    };
+
+    module = await Test.createTestingModule({
+      providers: [
+        AppointmentsService,
+        { provide: getModelToken(Appointment.name), useValue: appointmentModel },
+        { provide: DoctorsService, useValue: { findById: jest.fn() } },
+        { provide: PatientsService, useValue: { findById: jest.fn() } },
+        { provide: NotificationsService, useValue: { create: jest.fn() } },
+      ],
+    }).compile();
+
+    service = module.get<AppointmentsService>(AppointmentsService);
+  });
+
+  describe('assign', () => {
+    it('throws BadRequest when the appointment is not in requested status', async () => {
+      appointmentModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+      appointmentModel.exists.mockResolvedValue({ _id: 'apt-1' });
+
+      await expect(service.assign('doc-1', 'apt-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('throws NotFound when the appointment does not exist', async () => {
+      appointmentModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+      appointmentModel.exists.mockResolvedValue(null);
+
+      await expect(service.assign('doc-1', 'apt-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('atomically assigns a doctor when the status is requested', async () => {
+      const apt = mockAppointment({ status: 'assigned' });
+      appointmentModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(apt),
+      });
+
+      const doctorsService = module.get<DoctorsService>(DoctorsService);
+      const patientsService = module.get<PatientsService>(PatientsService);
+      (doctorsService.findById as jest.Mock).mockResolvedValue({
+        _id: 'doc-1',
+        name: 'Rohan Mehta',
+        specialty: 'Cardiology',
+      });
+      (patientsService.findById as jest.Mock).mockResolvedValue({
+        _id: 'pat-1',
+        user: 'user-1',
+      });
+
+      const result = await service.assign('doc-1', 'apt-1');
+
+      expect(appointmentModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'apt-1', status: 'requested' },
+        { doctor: 'doc-1', status: 'assigned' },
+        { new: true },
+      );
+      expect(apt.populate).toHaveBeenCalledWith('patient');
+      expect(result).toBe(apt);
     });
   });
 });

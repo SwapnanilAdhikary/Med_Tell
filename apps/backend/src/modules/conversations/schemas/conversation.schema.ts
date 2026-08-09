@@ -5,17 +5,25 @@ export type ConversationDocument = HydratedDocument<Conversation>;
 
 @Schema({ timestamps: true })
 export class Conversation {
-  @Prop({ type: Types.ObjectId, ref: 'Patient', required: true, index: true })
-  patient: Types.ObjectId;
+  // ponytail: `unique` will fail to build on a non-empty collection that
+  // already has duplicate `patient` docs - run a one-time dedup first.
+  @Prop({
+    type: Types.ObjectId,
+    ref: 'Patient',
+    required: true,
+    index: true,
+    unique: true,
+  })
+  patient!: Types.ObjectId;
 
   @Prop({ default: 'MedAssist Assistant' })
-  title: string;
+  title!: string;
 
   @Prop({ default: 'en' })
-  language: string;
+  language!: string;
 
   @Prop({ type: Date, default: Date.now, index: true })
-  lastActivity: Date;
+  lastActivity!: Date;
 
   /**
    * A doctor has taken this thread over. While set, the AI must not answer -

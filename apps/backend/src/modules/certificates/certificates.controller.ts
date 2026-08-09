@@ -1,12 +1,13 @@
 import {
   Controller,
   Get,
+  NotFoundException,
   Param,
   Res,
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import type { AuthUser } from '../../common/guards/jwt-auth.guard';
@@ -43,6 +44,9 @@ export class CertificatesController {
       id,
       user.role === 'patient' ? user.patientId! : undefined,
     );
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('Certificate PDF not found on disk');
+    }
     return new StreamableFile(createReadStream(filePath), {
       type: 'application/pdf',
       disposition: `inline; filename="certificate-${id}.pdf"`,

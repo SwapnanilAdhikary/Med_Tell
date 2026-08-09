@@ -28,6 +28,8 @@ export function Certificates() {
   const load = useCallback(async () => {
     try {
       setItems(await api<Certificate[]>('/api/certificates'))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load certificates')
     } finally {
       setLoading(false)
     }

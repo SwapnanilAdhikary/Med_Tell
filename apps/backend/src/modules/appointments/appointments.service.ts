@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Appointment } from './schemas/appointment.schema';
@@ -242,19 +246,29 @@ export class AppointmentsService {
   }
 
   async assign(doctorId: string | Types.ObjectId, appointmentId: string) {
+    // Atomic claim: only an appointment still `requested` may be taken, so two
+    // concurrent assigns cannot both succeed. `{ new: true }` returns the
+    // updated document if the filter matched, or `null` otherwise.
     const appointment = await this.appointmentModel
-      .findByIdAndUpdate(
-        appointmentId,
+      .findOneAndUpdate(
+        { _id: appointmentId, status: 'requested' },
         { doctor: doctorId, status: 'assigned' },
         { new: true },
       )
       .exec();
-    if (!appointment) throw new NotFoundException('Appointment not found');
 
-    const doctor = await this.doctorsService
-      .findById(doctorId)
-      .catch(() => null);
+    if (!appointment) {
+      // Distinguish "never existed" (404) from "already claimed" (400).
+      const exists = await this.appointmentModel.exists({
+        _id: appointmentId,
+      });
+      if (!exists) throw new NotFoundException('Appointment not found');
+      throw new BadRequestException('This case has already been claimed');
+    }
+
+    const doctor = await this.doctorsService.findById(doctorId).catch(() => null);
     const patient = await this.patientsService.findById(appointment.patient);
+
     await this.notificationsService.create({
       user: patient.user,
       title: 'Your doctor is confirmed',

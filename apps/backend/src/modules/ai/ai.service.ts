@@ -961,19 +961,21 @@ Respond with JSON only.`,
   }
 
   private extractJson(text: string): string {
-    const match = text.match(/\{[\s\S]*\}/);
-    return match ? match[0] : '{}';
-  }
+    // Find the first `{` and match to its closing `}` by counting nesting depth.
+    const start = text.indexOf('{');
+    if (start === -1) return '{}';
 
-  //private toDataUrl(path: string): string {
-  // const mime = path.endsWith('.png')
-  //  ? 'image/png'
-  //  : path.endsWith('.jpg') || path.endsWith('.jpeg')
-  //  ? 'image/jpeg'
-  // : 'image/jpeg';
-  // const base64 = fs.readFileSync(path).toString('base64');
-  //   return `data:${mime};base64,${base64}`;
-  //}
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      if (text[i] === '}') depth--;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+    // Fallback: try the whole text.
+    return text.slice(start);
+  }
 
   private toDataUrl(image: Buffer, mimeType: string): string {
     // MIME comes from multer's file.mimetype, not a filename guess — that's
