@@ -19,14 +19,41 @@ export interface CallOutcome {
   matchedDoctor?: MatchedDoctor | null
 }
 
-export interface CallListeners {
+/** What the field call returns instead of patient triage. */
+export interface FieldCallOutcome {
+  kind: 'report' | 'note' | 'none'
+  reportId?: string
+  noteId?: string
+  matchedDoctor?: { name: string; specialty: string; title?: string } | null
+  subjectReachable?: boolean
+  transcript?: string
+  reason?: string
+}
+
+export interface CallListeners<T = CallOutcome> {
   onStartSuccess?: () => void
   onStartFailed?: (error: string) => void
   onCallEnd?: () => void
   onSpeechStart?: () => void
   onSpeechEnd?: () => void
   /** Fires once the server has summarised the call and routed it to a doctor. */
-  onSummarized?: (outcome: CallOutcome) => void
+  onSummarized?: (outcome: T) => void
+  /**
+   * The transcript could not be filed. Without this the caller cannot tell
+   * "saved as a note" from "the request failed", which matters a lot more for a
+   * worker filing a case than for a patient chat.
+   */
+  onSummariseFailed?: (error: string) => void
+  /** The call ended with nothing transcribed, so there was nothing to file. */
+  onNothingHeard?: () => void
+}
+
+export interface CallOptions {
+  /** Defaults preserve the patient paths exactly. */
+  sessionPath?: string
+  completePath?: string
+  /** Merged into the complete-call body, e.g. the tapped map point. */
+  extra?: Record<string, unknown>
 }
 
 interface VapiLike {
@@ -71,9 +98,12 @@ export function isCallConfigured(): boolean {
   return Boolean(PUBLIC_KEY)
 }
 
-export async function getCallConfig(language: string): Promise<CallConfig> {
+export async function getCallConfig(
+  language: string,
+  sessionPath = '/api/calls/session',
+): Promise<CallConfig> {
   return api<CallConfig>(
-    `/api/calls/session?language=${encodeURIComponent(language)}`,
+    `${sessionPath}?language=${encodeURIComponent(language)}`,
   )
 }
 
@@ -92,14 +122,21 @@ function callIdOf(value: unknown): string | undefined {
   return v?.id ?? v?.call?.id
 }
 
-export async function startCall(
+export async function startCall<T = CallOutcome>(
   language: string,
-  listeners: CallListeners = {},
+  listeners: CallListeners<T> = {},
+  opts: CallOptions = {},
 ): Promise<() => void> {
   const vapi = await getVapi()
   if (!vapi) throw new Error('Voice calling is not configured (missing VITE_VAPI_PUBLIC_KEY).')
-  const config = await getCallConfig(language)
-  if (!config.assistantId) throw new Error('No VAPI_ASSISTANT_ID configured on the backend.')
+  const config = await getCallConfig(language, opts.sessionPath)
+  if (!config.assistantId) {
+    // Naming the actual variable: a worker hitting this needs the ASHA one.
+    const envVar = opts.sessionPath?.includes('/field')
+      ? 'VAPI_ASHA_ASSISTANT_ID'
+      : 'VAPI_ASSISTANT_ID'
+    throw new Error(`No ${envVar} configured on the backend.`)
+  }
 
   const subs: Array<[string, (...args: unknown[]) => void]> = []
   const on = (event: string, fn: (...args: unknown[]) => void) => {
@@ -117,20 +154,27 @@ export async function startCall(
   const postTranscript = async () => {
     if (posted) return
     posted = true
-    if (!callId || transcript.length === 0) return
+    if (!callId || transcript.length === 0) {
+      listeners.onNothingHeard?.()
+      return
+    }
     try {
-      const outcome = await api<CallOutcome>('/api/calls/complete', {
+      const outcome = await api<T>(opts.completePath ?? '/api/calls/complete', {
         method: 'POST',
         body: JSON.stringify({
           vapiCallId: callId,
           transcript,
           startedAt,
           endedAt: new Date().toISOString(),
+          ...(opts.extra ?? {}),
         }),
       })
       listeners.onSummarized?.(outcome)
     } catch (error) {
       console.error('Could not send the call transcript for triage', error)
+      listeners.onSummariseFailed?.(
+        error instanceof Error ? error.message : 'Could not file this call',
+      )
     }
   }
 

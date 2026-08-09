@@ -34,6 +34,12 @@ export interface BookAppointmentInput {
     village?: string;
     facilityName?: string;
   };
+  /**
+   * Who gets the "consultation requested" message. Defaults to the patient's
+   * own user; a villager with no phone has no account they can ever log into,
+   * so the reporting worker is told instead.
+   */
+  notifyUser?: string | Types.ObjectId;
 }
 
 /** What the AI hands back to the caller after routing a consultation. */
@@ -131,7 +137,7 @@ export class AppointmentsService {
     // The doctor's details, back to the patient.
     const inPerson = (input.type ?? 'call-back') === 'in-person';
     await this.notificationsService.create({
-      user: patient.user,
+      user: input.notifyUser ?? patient.user,
       title: 'Consultation requested',
       body: inPerson
         ? // Deliberately unnamed: the facility is the nearest one, the matched

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
@@ -15,6 +15,10 @@ import { CertificatesService } from '../certificates/certificates.service';
 import type { CertificateType } from '../certificates/schemas/certificate.schema';
 import { idFilter } from '../../common/mongoose.util';
 import { AuthService } from '../auth/auth.service';
+import { HealthWorkersService } from '../health-workers/health-workers.service';
+import { DoctorsService } from '../doctors/doctors.service';
+import { FacilitiesService } from '../facilities/facilities.service';
+import { FieldReportsService } from '../field-reports/field-reports.service';
 
 export interface VapiWebhookPayload {
   message?: {
@@ -43,6 +47,12 @@ export interface CompleteWebCallInput {
   endedAt?: string;
 }
 
+export interface CompleteFieldCallInput extends CompleteWebCallInput {
+  /** The point the worker tapped on the map before starting the call. */
+  geo?: { lat: number; lng: number; accuracyM?: number; picked?: boolean };
+  language?: string;
+}
+
 const CERT_TYPES: CertificateType[] = [
   'sick-leave',
   'fitness',
@@ -61,6 +71,16 @@ const NONE_RECORDED: Record<string, string> = {
 };
 
 // The agent opens by name instead of asking for it.
+// The worker is the reporter, so the greeting asks who they are calling about.
+const FIELD_GREETINGS: Record<string, (name: string) => string> = {
+  en: (name) =>
+    `Namaste ${name}, MedAssist here. What kind of report is this - general, domain specific, or an emergency?`,
+  hi: (name) =>
+    `नमस्ते ${name}, MedAssist यहाँ। यह किस तरह की रिपोर्ट है - सामान्य, किसी खास कार्यक्रम की, या आपातकाल?`,
+  bn: (name) =>
+    `নমস্কার ${name}, MedAssist বলছি। এটা কী ধরনের রিপোর্ট - সাধারণ, কোনও নির্দিষ্ট বিভাগের, নাকি আপৎকালীন?`,
+};
+
 const GREETINGS: Record<string, (name: string) => string> = {
   en: (name) =>
     `Hello ${name}, this is MedAssist. What symptoms are you experiencing today?`,
@@ -98,6 +118,10 @@ export class CallsService {
     private readonly conversationsService: ConversationsService,
     private readonly patientsService: PatientsService,
     private readonly certificatesService: CertificatesService,
+    private readonly healthWorkersService: HealthWorkersService,
+    private readonly doctorsService: DoctorsService,
+    private readonly facilitiesService: FacilitiesService,
+    private readonly fieldReportsService: FieldReportsService,
   ) {}
 
   /**
@@ -220,6 +244,12 @@ export class CallsService {
       if (session.summary) {
         return { linked: true, alreadyProcessed: true };
       }
+      // A field call was already turned into a report or a note. Running patient
+      // triage over an ASHA transcript about a third party would book a second
+      // appointment and write another person's case into a patient's chat.
+      if (session.kind === 'field') {
+        return { linked: true, alreadyProcessed: true };
+      }
 
       const patientId = await this.resolvePatient(session);
       if (!patientId) {
@@ -236,7 +266,7 @@ export class CallsService {
         session.transcriptText ?? '',
         language,
       );
-      session.patient = patient._id as never;
+      session.patient = patient._id;
       session.summary = summary;
       session.status = 'recorded';
       await session.save();
@@ -261,7 +291,8 @@ export class CallsService {
       if (shouldBook) {
         const { appointment, doctor } = await this.appointmentsService.book({
           patientId,
-          reason: (summary.summary as string) ?? 'Consultation requested by call',
+          reason:
+            (summary.summary as string) ?? 'Consultation requested by call',
           preferredWindow: 'As soon as possible',
           specialty,
           symptoms,
@@ -307,6 +338,117 @@ export class CallsService {
       this.logger.error('processCompletedCall failed', error as Error);
       return { linked: false, error: 'triage-failed' };
     }
+  }
+
+  /** The worker-facing sibling of getWebSession, on its own assistant. */
+  async getFieldWebSession(workerId: string | undefined, language?: string) {
+    if (!workerId) {
+      throw new ForbiddenException('No health worker linked to this account');
+    }
+    const worker = await this.healthWorkersService.findById(workerId);
+    const selected = SUPPORTED_LANGUAGES.includes(language ?? '')
+      ? language!
+      : (worker.languages?.[0] ?? 'en');
+    const firstName = worker.name.split(/\s+/)[0] || worker.name;
+
+    const [doctor, facility] = await Promise.all([
+      worker.assignedFacility
+        ? this.doctorsService
+            .list({ facility: worker.assignedFacility, verified: true })
+            .then((all) => all[0] ?? null)
+            .catch(() => null)
+        : Promise.resolve(null),
+      worker.assignedFacility
+        ? this.facilitiesService
+            .findById(worker.assignedFacility)
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      assistantId: this.config.get<string>('VAPI_ASHA_ASSISTANT_ID', ''),
+      language: selected,
+      firstMessage: (FIELD_GREETINGS[selected] ?? FIELD_GREETINGS.en)(
+        firstName,
+      ),
+      variableValues: {
+        language: selected,
+        workerName: worker.name,
+        cadre: worker.cadre,
+        village: worker.village ?? 'your assigned area',
+        // ponytail: the worker's linked doctor, not the AI-matched specialist -
+        // matching needs the transcript, which only exists after hang-up. The
+        // real match reaches the screen ~2s later via onSummarized.
+        linkedDoctor: doctor ? `Dr. ${doctor.name}` : 'the duty doctor',
+        linkedFacility: facility?.name ?? 'your nearest facility',
+      },
+    };
+  }
+
+  /**
+   * A worker's finished browser call. Keyed on `{ vapiCallId, kind: 'field' }`
+   * so it can never claim or be claimed by a patient session, and the transcript
+   * goes to the field classifier rather than patient triage.
+   */
+  async completeFieldWebCall(
+    worker: { workerId?: string; phone?: string },
+    input: CompleteFieldCallInput,
+  ) {
+    if (!worker.workerId) {
+      throw new ForbiddenException('No health worker linked to this account');
+    }
+    const transcriptText =
+      input.transcriptText ?? flattenTranscript(input.transcript);
+
+    const existing = await this.callModel
+      .findOne({ vapiCallId: input.vapiCallId })
+      .exec();
+    if (existing && String(existing.healthWorker) !== String(worker.workerId)) {
+      throw new ForbiddenException('That call belongs to someone else');
+    }
+
+    await this.callModel
+      .findOneAndUpdate(
+        { vapiCallId: input.vapiCallId, kind: 'field' },
+        {
+          kind: 'field',
+          healthWorker: worker.workerId,
+          source: 'web',
+          status: 'recorded',
+          assistantId: this.config.get<string>('VAPI_ASHA_ASSISTANT_ID', ''),
+          transcript: input.transcript ?? [],
+          transcriptText,
+          // Set so a later webhook for the same id sees it as already handled.
+          summary: { handledBy: 'field' },
+          startedAt: input.startedAt ? new Date(input.startedAt) : undefined,
+          endedAt: input.endedAt ? new Date(input.endedAt) : new Date(),
+        },
+        { upsert: true, new: true },
+      )
+      .exec();
+
+    if (!transcriptText.trim()) {
+      return { kind: 'none' as const, reason: 'nothing-heard' };
+    }
+
+    const outcome = await this.fieldReportsService.ingestFromCall(
+      worker.workerId,
+      {
+        transcript: transcriptText,
+        geo: input.geo,
+        language: input.language,
+        workerPhone: worker.phone,
+      },
+    );
+
+    return {
+      kind: outcome.kind,
+      reportId: outcome.report?._id.toString(),
+      noteId: outcome.noteId,
+      matchedDoctor: outcome.report?.matchedDoctor ?? null,
+      subjectReachable: outcome.report?.subjectReachable,
+      transcript: outcome.transcript,
+    };
   }
 
   /** Web calls arrive pre-linked via the JWT; phone calls resolve by number. */

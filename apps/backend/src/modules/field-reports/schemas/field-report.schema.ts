@@ -121,6 +121,14 @@ export class FieldReport {
   @Prop({ type: Object })
   matchedDoctor?: { name: string; specialty: string; title?: string };
 
+  /**
+   * False when the subject has no dialable number and identity is a synthetic
+   * `local:` key. One field to branch on instead of sniffing the phone string:
+   * the doctor's reply and any prescription go to the reporting worker instead.
+   */
+  @Prop({ default: true })
+  subjectReachable!: boolean;
+
   @Prop({ type: Object })
   consent?: { basis: 'explicit'; at: Date };
 

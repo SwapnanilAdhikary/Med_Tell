@@ -140,6 +140,7 @@ export function Layout() {
     // Map first: it is the worker's home and the way into every capture mode.
     health_worker: [
       { to: '/field/map', label: 'Map', icon: <MapPinIcon /> },
+      { to: '/field/call', label: 'Assistant', icon: <PhoneIcon /> },
       { to: '/field', label: 'New report', icon: <ClipboardIcon /> },
       { to: '/field/notes', label: 'Notes', icon: <NoteIcon /> },
       { to: '/field/reports', label: 'My reports', icon: <FileIcon /> },

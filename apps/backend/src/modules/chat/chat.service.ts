@@ -81,8 +81,6 @@ export class ChatService {
     };
   }
 
-
-
   /**
    * A report uploaded from the chat screen. Goes through the same analyze path
    * as the Reports screen (image never stored), then lands in the conversation

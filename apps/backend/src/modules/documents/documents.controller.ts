@@ -27,9 +27,7 @@ class AnalyzeBody {
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
-  
-
- @Post('analyze')
+  @Post('analyze')
   @Roles('patient')
   @UseInterceptors(FileInterceptor('file'))
   async analyze(
@@ -55,6 +53,4 @@ export class DocumentsController {
   listAll() {
     return this.documentsService.listAll({ status: 'awaiting-doctor' });
   }
-
-  
 }

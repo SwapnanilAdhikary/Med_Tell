@@ -26,7 +26,6 @@ export class DocumentsService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-
   async analyzeUpload(
     patientId: string | Types.ObjectId,
     file: Express.Multer.File,
@@ -34,7 +33,7 @@ export class DocumentsService {
   ) {
     // The image lives in file.buffer and is never written to disk — we keep
     // only what the AI read. See ARCHITECTURE.md §5C.
-   const isPdf = file.mimetype === 'application/pdf';
+    const isPdf = file.mimetype === 'application/pdf';
     const findings = (await (isPdf
       ? this.aiService.analyzePdf(file.buffer, language)
       : this.aiService.analyzeDocument(

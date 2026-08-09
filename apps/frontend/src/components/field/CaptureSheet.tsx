@@ -39,7 +39,7 @@ const ACTIONS: Action[] = [
     icon: '📞',
     title: 'Talk to the assistant',
     detail: 'It asks the questions and writes the report for you.',
-    soon: 'Needs setup',
+    to: '/field/call',
   },
   {
     key: 'voice',

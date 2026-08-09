@@ -5,6 +5,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  Matches,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -46,7 +47,12 @@ class RegisterWorkerBody implements RegisterWorkerDto {
 }
 
 class RegisterBody implements RegisterDto {
+  // `local:` is reserved for synthetic field-report identities; without this a
+  // real account could be registered on one and hijack that patient record.
   @IsString()
+  @Matches(/^[+\d][\d\s-]*$/, {
+    message: 'phone must be digits, and may start with +',
+  })
   phone!: string;
 
   @IsString()

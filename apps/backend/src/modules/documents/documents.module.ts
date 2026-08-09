@@ -3,7 +3,6 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 
-
 import {
   MedicalDocument,
   MedicalDocumentSchema,
@@ -14,8 +13,6 @@ import { AiModule } from '../ai/ai.module';
 import { VerificationModule } from '../verification/verification.module';
 import { PatientsModule } from '../patients/patients.module';
 import { NotificationsModule } from '../notifications/notifications.module';
-
-
 
 @Module({
   imports: [

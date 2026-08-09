@@ -19,6 +19,7 @@ import { AuthService } from '../auth/auth.service';
 import { HealthWorkersService } from '../health-workers/health-workers.service';
 import { FacilitiesService } from '../facilities/facilities.service';
 import { AppointmentsService } from '../appointments/appointments.service';
+import { FieldNotesService } from '../field-notes/field-notes.service';
 import type { HealthWorkerDocument } from '../health-workers/schemas/health-worker.schema';
 import { idFilter } from '../../common/mongoose.util';
 
@@ -43,6 +44,16 @@ export interface SubmitFieldReportInput {
   vitals?: Vitals;
   narrative?: string;
   geo?: { lat: number; lng: number; accuracyM?: number; picked?: boolean };
+}
+
+export interface SubmitOpts {
+  channel?: 'web' | 'voice';
+  /** False for any transport that is not an authenticated browser session. */
+  trustGeo?: boolean;
+  /** Already-run extraction, so the model is not called a second time. */
+  extraction?: FieldReportExtraction | null;
+  /** From the JWT, used as the doctor's contact when the subject has no number. */
+  workerPhone?: string;
 }
 
 /** The plain merged shape, before Mongoose casts it into a subdocument. */
@@ -86,6 +97,38 @@ function digitsOnly(phone?: string | null): string {
   return (phone ?? '').replace(/[^\d+]/g, '');
 }
 
+const LOCAL_PREFIX = 'local:';
+
+function slug(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40) || 'unnamed'
+  );
+}
+
+/**
+ * Identity for a villager with no phone. `Patient -> User -> phone` is
+ * required+unique, so something has to fill it; this is deliberately not
+ * dialable, and deterministic so the same person reported twice by the same
+ * worker resolves to one record.
+ *
+ * Built here rather than by the caller: digitsOnly() would strip the prefix and
+ * leave a string that looks like a real number.
+ *
+ * ponytail: two people of the same name in one worker's area collapse into one
+ * patient. A worker-facing "is this the same Sita Devi?" prompt is the upgrade.
+ */
+function localIdentity(workerId: string, name: string): string {
+  return `${LOCAL_PREFIX}${workerId}:${slug(name)}`;
+}
+
+export function isReachablePhone(phone: string): boolean {
+  return phone.length > 0 && !phone.startsWith(LOCAL_PREFIX);
+}
+
 @Injectable()
 export class FieldReportsService {
   private readonly logger = new Logger(FieldReportsService.name);
@@ -98,6 +141,7 @@ export class FieldReportsService {
     private readonly healthWorkersService: HealthWorkersService,
     private readonly facilitiesService: FacilitiesService,
     private readonly appointmentsService: AppointmentsService,
+    private readonly fieldNotesService: FieldNotesService,
   ) {}
 
   /**
@@ -108,21 +152,27 @@ export class FieldReportsService {
   async submit(
     workerId: string | undefined,
     input: SubmitFieldReportInput,
-    channel: 'web' | 'voice' = 'web',
+    opts: SubmitOpts = {},
   ): Promise<FieldReportDocument> {
+    const { channel = 'web', trustGeo = true, extraction: given } = opts;
     if (!workerId) {
       throw new ForbiddenException('No health worker linked to this account');
     }
     const worker = await this.healthWorkersService.findById(workerId);
 
-    const phone = digitsOnly(input.subject.phone);
+    // An empty phone must never reach findOrCreatePatientByPhone: User.phone is
+    // unique, so every anonymous villager would collapse onto one shared record.
+    const typed = digitsOnly(input.subject.phone);
+    const phone =
+      typed || localIdentity(String(worker._id), input.subject.name);
+    const reachable = isReachablePhone(phone);
     const language = input.language ?? worker.languages?.[0] ?? 'en';
     const { patientId } = await this.authService.findOrCreatePatientByPhone(
       phone,
       { name: input.subject.name, language },
     );
 
-    const location = this.resolveLocation(worker, input.geo, channel);
+    const location = this.resolveLocation(worker, input.geo, trustGeo);
     const facility = await this.facilitiesService.findNearest(
       location.point?.coordinates,
       {
@@ -140,11 +190,16 @@ export class FieldReportsService {
       rawTranscript: input.narrative,
       location,
       facility: facility?._id,
+      subjectReachable: reachable,
       consent: { basis: 'explicit', at: new Date() },
       status: 'extracting',
     });
 
-    const extraction = await this.extract(report, worker, input, language);
+    // A caller that already ran the extractor (the voice path, which needs the
+    // classification up front) passes it in, so the model is never billed twice
+    // and the stored extraction cannot disagree with the routing decision.
+    const extraction =
+      given ?? (await this.extract(report, worker, input, language));
     // Keep the plain merged object and route from it. Reading it back off the
     // document would hand route() a Mongoose subdocument, where Object.entries
     // yields internal keys and the vitals silently vanish from the brief.
@@ -153,7 +208,14 @@ export class FieldReportsService {
     report.status = 'submitted';
     await report.save();
 
-    await this.route(report, merged, worker, facility?.name, facility?._id);
+    await this.route(
+      report,
+      merged,
+      worker,
+      facility?.name,
+      facility?._id,
+      opts.workerPhone,
+    );
     return report;
   }
 
@@ -271,7 +333,7 @@ export class FieldReportsService {
   private resolveLocation(
     worker: HealthWorkerDocument,
     geo: SubmitFieldReportInput['geo'],
-    channel: 'web' | 'voice',
+    trustGeo: boolean,
   ) {
     const area = {
       village: worker.village,
@@ -279,9 +341,12 @@ export class FieldReportsService {
       district: worker.district,
     };
 
-    // A phone-in worker has no browser, so a body coordinate could only be a
-    // lie. Voice always falls back to the assigned area.
-    if (channel === 'web' && geo) {
+    // The predicate is trust, not modality: only a browser under this worker's
+    // authenticated session can produce a coordinate. An in-browser voice call
+    // has a real browser and a real tapped point, so gating on channel would
+    // have thrown that away. An unauthenticated transport passes no geo at all,
+    // and this branch stays the only writer of 'assigned'.
+    if (trustGeo && geo) {
       return {
         point: { type: 'Point' as const, coordinates: [geo.lng, geo.lat] },
         source: geo.picked ? ('picked' as const) : ('gps' as const),
@@ -305,6 +370,7 @@ export class FieldReportsService {
     worker: HealthWorkerDocument,
     facilityName?: string,
     facilityId?: Types.ObjectId,
+    workerPhone?: string,
   ) {
     try {
       const { appointment, doctor } = await this.appointmentsService.book({
@@ -327,6 +393,12 @@ export class FieldReportsService {
           village: report.location.village,
           facilityName,
         },
+        // No dialable number means no account to log into and nobody for the
+        // doctor to ring, so the worker becomes both the contact and the
+        // recipient - they are the person standing next to the patient.
+        ...(report.subjectReachable
+          ? {}
+          : { notifyUser: worker.user, bestContactNumber: workerPhone }),
       });
       report.appointment = appointment._id;
       if (doctor) {
@@ -359,6 +431,97 @@ export class FieldReportsService {
     return Object.entries(vitals ?? {})
       .filter(([key, value]) => value != null && VITAL_LABELS[key])
       .map(([key, value]) => VITAL_LABELS[key](value as number));
+  }
+
+  /**
+   * A finished ASHA voice call. Classifies the transcript once, then either
+   * files a report through the normal `submit()` path or saves a note.
+   *
+   * Failure is deliberately asymmetric: an unreadable or failed extraction is
+   * treated as a REPORT with the raw transcript attached, never as a note. A
+   * worker who rang the field line was almost certainly ringing about a person,
+   * and a note reaches no doctor.
+   */
+  async ingestFromCall(
+    workerId: string | undefined,
+    input: {
+      transcript: string;
+      geo?: SubmitFieldReportInput['geo'];
+      language?: string;
+      workerPhone?: string;
+    },
+  ): Promise<{
+    kind: 'report' | 'note';
+    report?: FieldReportDocument;
+    noteId?: string;
+    transcript: string;
+  }> {
+    if (!workerId) {
+      throw new ForbiddenException('No health worker linked to this account');
+    }
+    const worker = await this.healthWorkersService.findById(workerId);
+    const language = input.language ?? worker.languages?.[0] ?? 'en';
+
+    let extraction: FieldReportExtraction | null = null;
+    try {
+      extraction = await this.aiService.extractFieldReport(
+        {
+          rawText: input.transcript,
+          worker: {
+            name: worker.name,
+            cadre: worker.cadre,
+            village: worker.village,
+          },
+        },
+        language,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Call classification failed, filing as a report: ${(error as Error).message}`,
+      );
+    }
+
+    if (extraction?.kind === 'note') {
+      const note = await this.fieldNotesService.create(workerId, {
+        title: extraction.noteTitle ?? undefined,
+        body: input.transcript,
+        village: worker.village,
+        geo: input.geo ? { lat: input.geo.lat, lng: input.geo.lng } : undefined,
+      });
+      return {
+        kind: 'note',
+        noteId: note._id.toString(),
+        transcript: input.transcript,
+      };
+    }
+
+    const report = await this.submit(
+      workerId,
+      {
+        subject: {
+          // A report about nobody cannot exist, so an unnamed subject still gets
+          // a stable label rather than blocking the filing.
+          name: extraction?.subject.name?.trim() || 'Unnamed subject',
+          phone: extraction?.subject.phone ?? '',
+          ageYears: extraction?.subject.ageYears ?? undefined,
+          ageMonths: extraction?.subject.ageMonths ?? undefined,
+          gender: extraction?.subject.gender ?? undefined,
+          pregnant: extraction?.subject.pregnant ?? undefined,
+          pregnancyMonths: extraction?.subject.pregnancyMonths ?? undefined,
+        },
+        language,
+        narrative: input.transcript,
+        geo: input.geo,
+      },
+      {
+        channel: 'voice',
+        trustGeo: true,
+        extraction,
+        workerPhone: input.workerPhone,
+      },
+    );
+
+    return { kind: 'report', report, transcript: input.transcript };
   }
 
   /**

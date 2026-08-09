@@ -20,6 +20,7 @@ import { MyReports } from './components/field/MyReports'
 import { ReportDetail } from './components/field/ReportDetail'
 import { WorkerProfile } from './components/field/WorkerProfile'
 import { NotesList, NoteEditor } from './components/field/Notes'
+import { FieldCall } from './components/field/FieldCall'
 
 // mapbox-gl is ~1.8MB. Split out so patients and doctors never download it.
 const FieldMap = lazy(() =>
@@ -117,6 +118,7 @@ function App() {
                 </Suspense>
               }
             />
+            <Route path="/field/call" element={<FieldCall />} />
             <Route path="/field/notes" element={<NotesList />} />
             <Route path="/field/notes/:id" element={<NoteEditor />} />
             <Route path="/field/profile" element={<WorkerProfile />} />

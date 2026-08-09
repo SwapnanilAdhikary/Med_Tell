@@ -9,6 +9,7 @@
     "build": "nest build",
     "seed": "ts-node src/scripts/seed.ts",
     "vapi:setup": "ts-node src/scripts/setup-vapi.ts",
+    "vapi:setup:asha": "ts-node src/scripts/setup-vapi.ts --asha",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

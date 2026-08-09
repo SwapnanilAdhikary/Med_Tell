@@ -15,9 +15,11 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -82,8 +84,14 @@ class SubjectDto {
   @MaxLength(120)
   name!: string;
 
+  // @IsNotEmpty matters: User.phone is unique, so an empty string would make
+  // every anonymous villager resolve to one shared patient record.
   @IsString()
+  @IsNotEmpty()
   @MaxLength(20)
+  @Matches(/^[+\d][\d\s-]*$/, {
+    message: 'phone must be digits, and may start with +',
+  })
   phone!: string;
 
   @IsOptional() @IsNumber() @Min(0) @Max(120) ageYears?: number;
