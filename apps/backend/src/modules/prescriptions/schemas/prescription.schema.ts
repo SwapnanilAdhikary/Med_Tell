@@ -73,6 +73,15 @@ export class Prescription {
   doctor?: Types.ObjectId;
 
   /**
+   * Who to tell when this is signed, when it must not be the patient. A
+   * villager reported by an ASHA with no phone has a synthetic `local:` User
+   * nobody can log into, so the signed prescription goes to the worker to pass
+   * on. Unset means notify the patient, which is every other case.
+   */
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  notifyUser?: Types.ObjectId;
+
+  /**
    * TPG's Schedule O/A/B rules depend on how the consult happened, so it is a
    * stored fact at draft time - never inferred later at signing.
    */

@@ -2019,3 +2019,109 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== doctor: prescription verification card ===== */
+.rx-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rx-maps {
+  font-size: 12px;
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.rx-editor {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rx-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.rx-input,
+.rx-comment {
+  padding: 7px 9px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  min-width: 0;
+  flex: 1 1 110px;
+}
+
+.rx-input-name {
+  flex: 2 1 160px;
+  font-weight: 600;
+}
+
+.rx-input-days {
+  flex: 0 0 72px;
+}
+
+.rx-comment {
+  margin-top: 10px;
+  width: 100%;
+  flex: none;
+}
+
+.rx-drop {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.rx-drop:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.rx-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.rx-blocked {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.rx-read {
+  margin: 10px 0 0 18px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rx-token {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+}

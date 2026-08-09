@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { useAuth } from '../../store/auth'
 import type { Appointment } from '../../api/types'
+import { refName } from '../../names'
 
 function idOf(ref: Appointment['doctor']): string | undefined {
   if (!ref) return undefined
@@ -56,7 +57,7 @@ export function CallBacks() {
     load()
   }
 
-  const name = (a: Appointment) => (typeof a.patient === 'object' ? a.patient.name : 'Patient')
+  const name = (a: Appointment) => refName(a.patient)
   const phone = (a: Appointment) => a.callBackJob?.bestContactNumber ?? '—'
 
   return (

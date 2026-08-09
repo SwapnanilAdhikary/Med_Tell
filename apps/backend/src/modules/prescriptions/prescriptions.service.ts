@@ -22,6 +22,7 @@ import { PatientsService } from '../patients/patients.service';
 import { DoctorsService } from '../doctors/doctors.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { winAnsiSafe, drawWrappedText } from '../../common/pdf.util';
+import { idFilter } from '../../common/mongoose.util';
 
 export interface RequestPrescriptionClinical {
   symptoms?: string[];
@@ -44,6 +45,8 @@ export interface RequestPrescriptionInput {
   clinical?: RequestPrescriptionClinical;
   /** Report-derived fields the doctor's queue card renders. */
   render?: Record<string, unknown>;
+  /** Set when the patient has no reachable account - see the schema prop. */
+  notifyUser?: string | Types.ObjectId;
 }
 
 export interface DoctorEdit {
@@ -70,7 +73,9 @@ export class PrescriptionsService {
    * a doctor. The draft survives even with flags present - a block flag does
    * not auto-reject, it forces the doctor to Edit & approve.
    */
-  async request(input: RequestPrescriptionInput): Promise<PrescriptionDocument> {
+  async request(
+    input: RequestPrescriptionInput,
+  ): Promise<PrescriptionDocument> {
     const patient = await this.patientsService.findById(input.patientId);
     const consultMode = input.consultMode ?? 'teleconsult';
     const clinical = input.clinical ?? {};
@@ -100,6 +105,7 @@ export class PrescriptionsService {
     const prescription = await this.prescriptionModel.create({
       patient: input.patientId,
       fieldReport: input.fieldReportId,
+      notifyUser: input.notifyUser,
       consultMode,
       draftItems: this.freezeItems(result.items),
       flags: result.flags,
@@ -166,9 +172,12 @@ export class PrescriptionsService {
     }
 
     const edited = Array.isArray(edit?.items) ? edit.items : undefined;
+    // Through toSchemaItems, not a spread: class-transformer materialises every
+    // unset DTO field, so a spread persists `dose: null` and undoes the same
+    // null-stripping the council items already get.
     const items =
       edited && edited.length > 0
-        ? edited.map((item) => ({ ...item }))
+        ? this.toSchemaItems(edited)
         : prescription.draftItems;
 
     const warnFlags = this.denyListWarnFlags(items);
@@ -184,10 +193,15 @@ export class PrescriptionsService {
     prescription.issuedAt = new Date();
     await prescription.save();
 
+    const toWorker = !!prescription.notifyUser;
     await this.notificationsService.create({
-      user: patient.user,
-      title: 'Your prescription is ready',
-      body: `${prescription.signedBy} verified and signed your prescription. You can download the PDF now.`,
+      user: prescription.notifyUser ?? patient.user,
+      title: toWorker
+        ? `Prescription signed for ${patient.name}`
+        : 'Your prescription is ready',
+      body: toWorker
+        ? `${prescription.signedBy} signed a prescription for ${patient.name}. Open the report to read it out and download the PDF for the household.`
+        : `${prescription.signedBy} verified and signed your prescription. You can download the PDF now.`,
       type: 'verification',
       ref: { prescriptionId: prescription._id.toString() },
     });
@@ -229,6 +243,21 @@ export class PrescriptionsService {
     }
 
     return prescription;
+  }
+
+  /**
+   * The doctor's own signing record: what the council proposed alongside what
+   * they actually signed. draftItems is included here on purpose - this is the
+   * one audience entitled to see the rejected draft.
+   */
+  async listSignedBy(doctorId: string | Types.ObjectId) {
+    return this.prescriptionModel
+      .find({ ...idFilter('doctor', doctorId), status: 'issued' })
+      .sort({ issuedAt: -1 })
+      .select('patient items draftItems flags signedBy issuedAt consultMode')
+      .populate('patient', 'name')
+      .lean()
+      .exec();
   }
 
   async findById(id: string | Types.ObjectId): Promise<PrescriptionDocument> {
@@ -274,7 +303,9 @@ export class PrescriptionsService {
     });
   }
 
-  private denyListWarnFlags(items: Array<{ name: string }>): PrescriptionFlag[] {
+  private denyListWarnFlags(
+    items: Array<{ name: string }>,
+  ): PrescriptionFlag[] {
     const flags: PrescriptionFlag[] = [];
     for (const item of items) {
       const stem = item.name.toLowerCase().replace(/[^a-z]/g, '');
@@ -395,7 +426,9 @@ export class PrescriptionsService {
       ]
         .filter((t): t is string => !!t)
         .join(' · ');
-      const line = `${index + 1}. ${item.name}${tokens ? `  —  ${tokens}` : ''}`;
+      // Hyphen, not an em dash: winAnsiSafe turns U+2014 into a literal "?"
+      // because StandardFonts Helvetica has no glyph for it.
+      const line = `${index + 1}. ${item.name}${tokens ? `  -  ${tokens}` : ''}`;
       page.drawText(winAnsiSafe(line.slice(0, 120)), {
         x: 60,
         y: cy,
@@ -447,7 +480,9 @@ export class PrescriptionsService {
       });
     }
     page.drawText(
-      `Issued under a ${winAnsiSafe(prescription.consultMode)} teleconsultation.`,
+      // Not "... teleconsultation": consultMode is already 'teleconsult', and
+      // the two together printed "a teleconsult teleconsultation".
+      `Issued under a ${winAnsiSafe(prescription.consultMode)} consultation.`,
       {
         x: 60,
         y: 106,

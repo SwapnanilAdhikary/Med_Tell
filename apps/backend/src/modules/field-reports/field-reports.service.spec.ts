@@ -61,7 +61,7 @@ describe('FieldReportsService', () => {
   const facilitiesService = { findNearest: jest.fn() };
   const appointmentsService = { book: jest.fn() };
   const fieldNotesService = { create: jest.fn() };
-  const prescriptionsService = { request: jest.fn() };
+  const prescriptionsService = { request: jest.fn(), pdfPath: jest.fn() };
 
   /** The document handed to reportModel.create. */
   const createdWith = () => reportModel.create.mock.calls[0][0];
@@ -680,6 +680,43 @@ describe('FieldReportsService', () => {
       await expect(
         service.findForWorker('worker-1', 'report-9'),
       ).rejects.toThrow('Field report not found');
+    });
+
+    describe('prescriptionPdfPath', () => {
+      it('reads the id back off the populated prescription document', async () => {
+        findByIdReturns({
+          _id: 'report-1',
+          worker: 'worker-1',
+          prescription: { _id: 'rx-1', status: 'issued' },
+        });
+        prescriptionsService.pdfPath.mockResolvedValue('/tmp/rx-1.pdf');
+
+        await expect(
+          service.prescriptionPdfPath('worker-1', 'report-1'),
+        ).resolves.toBe('/tmp/rx-1.pdf');
+        expect(prescriptionsService.pdfPath).toHaveBeenCalledWith('rx-1');
+      });
+
+      it('404s for a worker who did not file the report', async () => {
+        findByIdReturns({
+          _id: 'report-9',
+          worker: 'worker-2',
+          prescription: { _id: 'rx-9' },
+        });
+
+        await expect(
+          service.prescriptionPdfPath('worker-1', 'report-9'),
+        ).rejects.toThrow('Field report not found');
+        expect(prescriptionsService.pdfPath).not.toHaveBeenCalled();
+      });
+
+      it('404s when the report has no prescription', async () => {
+        findByIdReturns({ _id: 'report-1', worker: 'worker-1' });
+
+        await expect(
+          service.prescriptionPdfPath('worker-1', 'report-1'),
+        ).rejects.toThrow('No prescription for this report');
+      });
     });
   });
 });

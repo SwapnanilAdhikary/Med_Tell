@@ -8,7 +8,9 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  StreamableFile,
 } from '@nestjs/common';
+import { createReadStream } from 'node:fs';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Type } from 'class-transformer';
 import {
@@ -188,5 +190,29 @@ export class FieldReportsController {
   @Roles('health_worker')
   one(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.fieldReportsService.findForWorker(user.workerId, id);
+  }
+
+  /**
+   * The signed prescription for a report, for the worker who filed it.
+   *
+   * It hangs off the report rather than /api/prescriptions/:id because the
+   * ownership rule is "you filed this report" - findForWorker already enforces
+   * exactly that, and PrescriptionsModule would need a forwardRef back to this
+   * module to ask the same question.
+   */
+  @Get(':id/prescription/pdf')
+  @Roles('health_worker')
+  async prescriptionPdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ): Promise<StreamableFile> {
+    const filePath = await this.fieldReportsService.prescriptionPdfPath(
+      user.workerId,
+      id,
+    );
+    return new StreamableFile(createReadStream(filePath), {
+      type: 'application/pdf',
+      disposition: `inline; filename="prescription-${id}.pdf"`,
+    });
   }
 }

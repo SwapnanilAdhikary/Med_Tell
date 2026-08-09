@@ -105,7 +105,7 @@ export interface Certificate {
 
 export interface VerificationTask {
   _id: string
-  taskType: 'document' | 'certificate' | 'call-note' | 'appointment'
+  taskType: 'document' | 'certificate' | 'prescription' | 'call-note' | 'appointment'
   refId: string
   patient: { _id: string; name: string } | string
   aiOutput?: Record<string, unknown>
@@ -241,10 +241,29 @@ export interface FieldReport {
   facility?: Facility | string
   appointment?: string
   matchedDoctor?: { name: string; specialty: string; title?: string }
+  prescription?: SignedPrescription | string
   status: 'extracting' | 'submitted' | 'routed' | 'failed'
   aiError?: string
   routingError?: string
   createdAt: string
+}
+
+export interface PrescriptionItem {
+  name: string
+  dose?: string
+  frequency?: string
+  durationDays?: number
+  instructions?: string
+}
+
+/** What the worker is shown: the signed items only, never the AI's draft. */
+export interface SignedPrescription {
+  _id: string
+  status: 'awaiting-doctor' | 'issued' | 'rejected'
+  items?: PrescriptionItem[]
+  signedBy?: string
+  issuedAt?: string
+  consultMode?: string
 }
 
 export interface FieldNote {
