@@ -60,7 +60,6 @@ const USERS: SeedUser[] = [
   { phone: '+919700000001', name: 'Anjali Roy', role: 'health_worker' },
 ];
 
-
 // Coordinates are [lng, lat] and approximate - demo only.
 const FACILITIES = [
   {
@@ -497,12 +496,10 @@ async function main() {
 
   // 3. Documents + verification tasks
 
-
   for (const d of DOCUMENTS) {
     const pid = patientIds.get(d.patient)!;
     const exists = await documentModel.findOne({ filename: d.filename }).exec();
     if (!exists) {
-      
       const doc = await documentModel.create({
         patient: pid,
         filename: d.filename,

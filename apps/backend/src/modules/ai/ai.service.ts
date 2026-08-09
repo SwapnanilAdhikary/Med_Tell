@@ -1,4 +1,3 @@
-
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
@@ -33,6 +32,12 @@ export interface FieldReportSubject {
 }
 
 export interface FieldReportExtraction {
+  /**
+   * Whether the worker was reporting a health concern about another person, or
+   * just leaving themselves a memo. Coerced after parsing - never trusted raw.
+   */
+  kind: 'report' | 'note';
+  noteTitle?: string | null;
   subject: FieldReportSubject;
   symptoms: string[];
   duration?: string | null;
@@ -56,6 +61,9 @@ export interface FieldReportInput {
 }
 
 const EMPTY_EXTRACTION: FieldReportExtraction = {
+  // A worker who called the field line was almost certainly calling about a
+  // person, so an unreadable reply must not demote their visit to a memo.
+  kind: 'report',
   subject: {},
   symptoms: [],
   vitals: {},
@@ -366,7 +374,6 @@ Be conservative. Never state a definitive diagnosis.`,
     }
   }
 
-
   /**
    * Reads a computer-generated PDF's text layer and analyses that text.
    * Scanned PDFs have no text layer — those return empty findings, which
@@ -413,7 +420,7 @@ Be conservative. Never state a definitive diagnosis.`,
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const doc = await pdfjs.getDocument({
       data: new Uint8Array(pdf),
-       // no script execution from an untrusted PDF
+      // no script execution from an untrusted PDF
       useSystemFonts: false,
     }).promise;
 
@@ -422,16 +429,13 @@ Be conservative. Never state a definitive diagnosis.`,
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
       pages.push(
-        content.items
-          .map((item) => ('str' in item ? item.str : ''))
-          .join(' '),
+        content.items.map((item) => ('str' in item ? item.str : '')).join(' '),
       );
     }
-  
+
     await doc.cleanup();
     return pages.join('\n');
   }
-
 
   async summarizeCall(
     transcriptText: string,
@@ -510,6 +514,8 @@ ${JSON.stringify(input.known ?? {})}
 
 Return JSON with exactly this shape:
 {
+  "kind": "report | note",
+  "noteTitle": null,
   "subject": {"name": null, "phone": null, "ageYears": null, "ageMonths": null, "gender": null, "pregnant": null, "pregnancyMonths": null},
   "symptoms": ["..."],
   "duration": null,
@@ -526,6 +532,8 @@ Return JSON with exactly this shape:
 }
 
 Rules:
+- "kind" is "report" when the worker described a health concern about a SPECIFIC OTHER PERSON. It is "note" only when the recording is a memo to themselves - a reminder, a supply or stock problem, broken equipment, a scheduling thought - with no sick person in it. When in doubt, choose "report".
+- "noteTitle" is a short title of at most eight words, and only when kind is "note".
 - NEVER invent a vital sign. Only record a number the worker actually measured or stated. null beats a guess.
 - Phone numbers as digits only, no spaces or punctuation.
 - You may ESCALATE the worker's own urgency judgement, never downgrade it. They are standing there and you are not.
@@ -538,7 +546,27 @@ Respond with JSON only.`,
     });
 
     const text = completion.choices[0].message.content ?? '{}';
-    return this.parseJson(text, EMPTY_EXTRACTION);
+    return this.coerceKind(this.parseJson(text, EMPTY_EXTRACTION));
+  }
+
+  /**
+   * The classification is a safety decision, so it is never trusted as parsed:
+   * `{...fallback, ...parsed}` lets a literal `"kind": null` overwrite the
+   * default, and a clinical emergency must reach a doctor whatever the model
+   * decided to call it.
+   */
+  private coerceKind(e: FieldReportExtraction): FieldReportExtraction {
+    const urgent = e.urgency === 'urgent' || e.urgency === 'emergency';
+    const kind =
+      e.kind === 'note' && !urgent && (e.dangerSigns ?? []).length === 0
+        ? 'note'
+        : 'report';
+    if (kind === 'report' && e.kind === 'note') {
+      this.logger.warn(
+        'Overriding a "note" classification: danger signs or urgency present.',
+      );
+    }
+    return { ...e, kind };
   }
 
   /**
@@ -577,13 +605,13 @@ Respond with JSON only.`,
   }
 
   //private toDataUrl(path: string): string {
-   // const mime = path.endsWith('.png')
-    //  ? 'image/png'
-    //  : path.endsWith('.jpg') || path.endsWith('.jpeg')
-      //  ? 'image/jpeg'
-       // : 'image/jpeg';
-   // const base64 = fs.readFileSync(path).toString('base64');
- //   return `data:${mime};base64,${base64}`;
+  // const mime = path.endsWith('.png')
+  //  ? 'image/png'
+  //  : path.endsWith('.jpg') || path.endsWith('.jpeg')
+  //  ? 'image/jpeg'
+  // : 'image/jpeg';
+  // const base64 = fs.readFileSync(path).toString('base64');
+  //   return `data:${mime};base64,${base64}`;
   //}
 
   private toDataUrl(image: Buffer, mimeType: string): string {

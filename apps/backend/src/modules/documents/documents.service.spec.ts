@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
-import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { MedicalDocument } from './schemas/medical-document.schema';
 import { AiService } from '../ai/ai.service';
@@ -47,7 +50,10 @@ describe('DocumentsService.analyzeUpload', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DocumentsService,
-        { provide: getModelToken(MedicalDocument.name), useValue: documentModel },
+        {
+          provide: getModelToken(MedicalDocument.name),
+          useValue: documentModel,
+        },
         { provide: AiService, useValue: aiService },
         { provide: VerificationService, useValue: verificationService },
         { provide: PatientsService, useValue: { findById: jest.fn() } },
@@ -103,7 +109,10 @@ describe('DocumentsService.analyzeUpload', () => {
 
     await service.analyzeUpload('patient-1', fakeFile());
 
-    const saved = documentModel.create.mock.calls[0][0] as Record<string, unknown>;
+    const saved = documentModel.create.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
     expect(saved.filePath).toBeUndefined();
   });
 
@@ -130,7 +139,10 @@ describe('DocumentsService.findOwned', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DocumentsService,
-        { provide: getModelToken(MedicalDocument.name), useValue: documentModel },
+        {
+          provide: getModelToken(MedicalDocument.name),
+          useValue: documentModel,
+        },
         { provide: AiService, useValue: {} },
         { provide: VerificationService, useValue: {} },
         { provide: PatientsService, useValue: {} },
@@ -178,7 +190,10 @@ describe('DocumentsService.approve', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DocumentsService,
-        { provide: getModelToken(MedicalDocument.name), useValue: documentModel },
+        {
+          provide: getModelToken(MedicalDocument.name),
+          useValue: documentModel,
+        },
         { provide: AiService, useValue: {} },
         { provide: VerificationService, useValue: {} },
         {

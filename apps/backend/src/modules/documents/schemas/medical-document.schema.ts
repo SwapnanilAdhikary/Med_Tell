@@ -34,8 +34,6 @@ export class MedicalDocument {
   @Prop({ trim: true })
   docType?: string;
 
-  
-
   @Prop({
     type: String,
     enum: ['pending', 'ai-reviewed', 'awaiting-doctor', 'approved', 'rejected'],
