@@ -14,6 +14,7 @@ import { HealthWorkersModule } from '../health-workers/health-workers.module';
 import { FacilitiesModule } from '../facilities/facilities.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { FieldNotesModule } from '../field-notes/field-notes.module';
+import { PrescriptionsModule } from '../prescriptions/prescriptions.module';
 
 // Voice notes are transcribed then deleted, so they live in a scratch dir and
 // are never served - unlike uploads/, which ServeStatic exposes.
@@ -45,6 +46,7 @@ const AUDIO_DIR = path.join(process.cwd(), 'tmp-audio');
     AppointmentsModule,
     // A leaf module (own model only), so this stays a one-way edge.
     FieldNotesModule,
+    PrescriptionsModule,
   ],
   controllers: [FieldReportsController],
   providers: [FieldReportsService],

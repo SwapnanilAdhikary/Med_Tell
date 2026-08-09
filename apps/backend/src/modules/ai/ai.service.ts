@@ -60,6 +60,78 @@ export interface FieldReportInput {
   known?: Record<string, unknown>;
 }
 
+/**
+ * The hardcoded layer the model cannot undermine. Checked in TypeScript after
+ * the council returns: a match gets a block flag regardless of what the
+ * formulary checker said. The model's tpgList is decoration on top of this.
+ */
+export const PROHIBITED_STEMS = [
+  'alprazolam',
+  'diazepam',
+  'lorazepam',
+  'clonazepam',
+  'nitrazepam',
+  'zolpidem',
+  'tramadol',
+  'codeine',
+  'morphine',
+  'fentanyl',
+  'pethidine',
+  'oxycodone',
+  'hydrocodone',
+  'methylphenidate',
+  'buprenorphine',
+];
+
+export interface CouncilPatient {
+  name: string;
+  language?: string;
+  ageYears?: number | null;
+  ageMonths?: number | null;
+  gender?: string | null;
+  pregnant?: boolean | null;
+  pregnancyMonths?: number | null;
+  allergies: string[];
+  conditions: string[];
+  medications: string[];
+}
+
+export interface PrescriptionCouncilInput {
+  patient: CouncilPatient;
+  consultMode: string;
+  symptoms?: string[];
+  vitals?: object;
+  suspectedCondition?: string | null;
+  duration?: string | null;
+  urgency?: string | null;
+  sourceSummary?: string | null;
+}
+
+export interface CouncilItem {
+  name: string;
+  dose?: string | null;
+  frequency?: string | null;
+  durationDays?: number | null;
+  instructions?: string | null;
+  tpgList?: 'O' | 'A' | 'B' | 'prohibited' | 'unclassified';
+}
+
+export interface CouncilFlag {
+  severity: 'block' | 'warn' | 'info';
+  role: 'prescriber' | 'safety' | 'formulary' | 'system';
+  message: string;
+  itemName?: string;
+}
+
+export interface PrescriptionCouncilResult {
+  items: CouncilItem[];
+  flags: CouncilFlag[];
+  failedRoles: string[];
+  advice?: string | null;
+  followUp?: string | null;
+  summary?: string | null;
+}
+
 const EMPTY_EXTRACTION: FieldReportExtraction = {
   // A worker who called the field line was almost certainly calling about a
   // person, so an unreadable reply must not demote their visit to a memo.
@@ -485,6 +557,295 @@ Respond with strict JSON: {"title": "...", "body": "full certificate text", "val
     });
     const text = completion.choices[0].message.content ?? '{}';
     return JSON.parse(this.extractJson(text));
+  }
+
+  /**
+   * A real three-role panel. Two waves, not three in parallel: the checkers
+   * must see the draft, so they can only run after the prescriber has produced
+   * it. `Promise.allSettled`, not `Promise.all` - one failing checker must not
+   * discard the other's result, so a checker outage degrades (a block flag +
+   * a failedRoles entry) while a prescriber outage is fatal (no draft at all).
+   */
+  async draftPrescriptionCouncil(
+    input: PrescriptionCouncilInput,
+  ): Promise<PrescriptionCouncilResult> {
+    const draft = await this.prescribe(input);
+
+    const settled = await Promise.allSettled([
+      this.reviewSafety(input, draft),
+      this.reviewFormulary(input, draft),
+    ]);
+    const safety = settled[0] as PromiseSettledResult<CouncilFlag[]>;
+    const formulary = settled[1] as PromiseSettledResult<
+      Array<{ name: string; tpgList: string }>
+    >;
+
+    const flags: CouncilFlag[] = [];
+    const failedRoles: string[] = [];
+    const classifications: Array<{ name: string; tpgList?: string }> = [];
+
+    if (safety.status === 'fulfilled') {
+      flags.push(...safety.value);
+    } else {
+      failedRoles.push('safety');
+      flags.push({
+        severity: 'block',
+        role: 'system',
+        message: `Safety review failed: ${(safety.reason as Error).message}`,
+      });
+    }
+
+    if (formulary.status === 'fulfilled') {
+      classifications.push(...formulary.value);
+    } else {
+      failedRoles.push('formulary');
+      flags.push({
+        severity: 'block',
+        role: 'system',
+        message: `Formulary review failed: ${(formulary.reason as Error).message}`,
+      });
+    }
+
+    // The merge does exactly three things: concat flags, stamp tpgList per item
+    // (a missing verdict stays unclassified - never drop the item), and never
+    // touch the items themselves. No disagreement can be silently dropped.
+    const items = draft.items.map((item) => ({
+      ...item,
+      tpgList: this.verdictFor(item.name, classifications),
+    }));
+    flags.push(...this.denyListFlags(items));
+
+    return {
+      items,
+      flags,
+      failedRoles,
+      advice: draft.advice ?? null,
+      followUp: draft.followUp ?? null,
+      summary: draft.summary ?? null,
+    };
+  }
+
+  /** Wave 1. Prescriber failure is fatal: there is no draft to review. */
+  private async prescribe(
+    input: PrescriptionCouncilInput,
+  ): Promise<{ items: CouncilItem[]; advice?: string; followUp?: string; summary?: string }> {
+    const patient = input.patient;
+    const parsed = await this.councilJson(
+      `You are the prescribing physician on a three-member AI council drafting a prescription for a patient assessed by an ASHA/ANM health worker. You produce the draft; a safety pharmacist and a formulary pharmacist then review it. This is a ${input.consultMode} consult - there was no in-person examination.
+
+PATIENT:
+${JSON.stringify({
+  name: patient.name,
+  language: patient.language ?? 'en',
+  ageYears: patient.ageYears,
+  ageMonths: patient.ageMonths,
+  gender: patient.gender,
+  pregnant: patient.pregnant,
+  pregnancyMonths: patient.pregnancyMonths,
+  allergies: patient.allergies,
+  conditions: patient.conditions,
+  medications: patient.medications,
+})}
+
+CLINICAL PICTURE:
+${JSON.stringify({
+  symptoms: input.symptoms ?? [],
+  vitals: input.vitals ?? {},
+  suspectedCondition: input.suspectedCondition ?? null,
+  duration: input.duration ?? null,
+  urgency: input.urgency ?? null,
+  sourceSummary: input.sourceSummary ?? null,
+})}
+
+RULES:
+- International non-proprietary (INN) generic names only.
+- No controlled substances, no injectables.
+- At most 5 items.
+- For a first remote consult, durationDays must be 5 or fewer.
+- Always include supportive care (ORS, fluids, rest) when appropriate.
+- If the case is beyond safe remote management, return "items": [].
+Respond with JSON only:
+{"items": [{"name": "INN generic", "dose": "500 mg", "frequency": "1 tab 3x daily", "durationDays": 5, "instructions": "after food"}], "advice": "care advice for the patient", "followUp": "when and how to re-contact", "summary": "one-line clinical rationale"}`,
+      {
+        symptoms: input.symptoms ?? [],
+        vitals: input.vitals ?? {},
+        suspectedCondition: input.suspectedCondition ?? null,
+        duration: input.duration ?? null,
+        urgency: input.urgency ?? null,
+        sourceSummary: input.sourceSummary ?? null,
+      },
+      0.2,
+    );
+
+    const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+    const items: CouncilItem[] = rawItems
+      .filter(
+        (i): i is Record<string, unknown> =>
+          !!i && typeof i === 'object' && typeof (i as { name?: unknown }).name === 'string',
+      )
+      .map((i) => ({
+        name: i.name as string,
+        dose: typeof i.dose === 'string' ? i.dose : null,
+        frequency: typeof i.frequency === 'string' ? i.frequency : null,
+        durationDays: typeof i.durationDays === 'number' ? i.durationDays : null,
+        instructions: typeof i.instructions === 'string' ? i.instructions : null,
+      }));
+
+    return {
+      items,
+      advice: typeof parsed.advice === 'string' ? parsed.advice : undefined,
+      followUp: typeof parsed.followUp === 'string' ? parsed.followUp : undefined,
+      summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+    };
+  }
+
+  /** Wave 2, role 1. Emits flags only - never edits an item. */
+  private async reviewSafety(
+    input: PrescriptionCouncilInput,
+    draft: { items: CouncilItem[] },
+  ): Promise<CouncilFlag[]> {
+    const patient = input.patient;
+    const parsed = await this.councilJson(
+      `You are the safety pharmacist on a three-member AI council. Review the prescribing physician's draft for safety. You emit FLAGS ONLY - you never edit, add, remove or reorder any item.
+
+PATIENT:
+${JSON.stringify({
+  ageYears: patient.ageYears,
+  ageMonths: patient.ageMonths,
+  gender: patient.gender,
+  pregnant: patient.pregnant,
+  pregnancyMonths: patient.pregnancyMonths,
+  allergies: patient.allergies,
+  conditions: patient.conditions,
+  medications: patient.medications,
+})}
+
+CHECKS:
+1. Allergy cross-reaction at CLASS level (penicillin -> amoxicillin, sulfa -> cotrimoxazole, the whole NSAID class, ...).
+2. Interactions with the patient's current medications AND within the draft itself.
+3. Age appropriateness (aspirin under 16 - Reye's, tetracyclines under 8, fluoroquinolones in children).
+4. Pregnancy - an UNRECORDED pregnancy status in a woman 12-50 is itself a warn flag.
+Respond with JSON only:
+{"flags": [{"severity": "block | warn | info", "itemName": "the drug name if the flag concerns one item, else null", "message": "specific, actionable text"}]}`,
+      { draft: draft.items, consultMode: input.consultMode },
+      0.1,
+    );
+
+    const rawFlags = Array.isArray(parsed.flags) ? parsed.flags : [];
+    return rawFlags
+      .filter((f): f is Record<string, unknown> => !!f && typeof f === 'object')
+      .map((f) => ({
+        severity: this.flagSeverity(f.severity),
+        role: 'safety' as const,
+        message: typeof f.message === 'string' ? f.message : 'Safety flag',
+        itemName: typeof f.itemName === 'string' ? f.itemName : undefined,
+      }));
+  }
+
+  /** Wave 2, role 2. Classifies each drug for the recorded consult mode. */
+  private async reviewFormulary(
+    input: PrescriptionCouncilInput,
+    draft: { items: CouncilItem[] },
+  ): Promise<Array<{ name: string; tpgList: string }>> {
+    const parsed = await this.councilJson(
+      `You are the formulary pharmacist on a three-member AI council. Classify each drug in the prescribing physician's draft under the national Schedule O/A/B list for the recorded consult mode (${input.consultMode}). You emit classifications ONLY - you never edit an item.
+If you are not certain how a drug is classified, output "unclassified". Do not guess a list.
+Respond with JSON only:
+{"classifications": [{"name": "drug name", "tpgList": "O | A | B | prohibited | unclassified"}]}`,
+      { draft: draft.items, consultMode: input.consultMode },
+      0.1,
+    );
+
+    const raw = Array.isArray(parsed.classifications) ? parsed.classifications : [];
+    return raw
+      .filter(
+        (c): c is Record<string, unknown> =>
+          !!c && typeof c === 'object' && typeof (c as { name?: unknown }).name === 'string',
+      )
+      .map((c) => ({
+        name: c.name as string,
+        tpgList:
+          typeof c.tpgList === 'string' &&
+          ['O', 'A', 'B', 'prohibited', 'unclassified'].includes(c.tpgList)
+            ? c.tpgList
+            : 'unclassified',
+      }));
+  }
+
+  /**
+   * TypeScript, after the council. A prohibited stem gets a block flag no
+   * matter what the formulary checker said - this is the layer we demo, test
+   * and defend; the model's tpgList is decoration on top of it.
+   */
+  private denyListFlags(items: CouncilItem[]): CouncilFlag[] {
+    const flags: CouncilFlag[] = [];
+    for (const item of items) {
+      const stem = item.name.toLowerCase().replace(/[^a-z]/g, '');
+      if (PROHIBITED_STEMS.some((p) => stem === p || stem.startsWith(p))) {
+        flags.push({
+          severity: 'block',
+          role: 'system',
+          message: `${item.name} is on the prohibited list and can never be prescribed, whatever the formulary classified it as.`,
+          itemName: item.name,
+        });
+      }
+    }
+    return flags;
+  }
+
+  private verdictFor(
+    name: string,
+    classifications: Array<{ name: string; tpgList?: string }>,
+  ): CouncilItem['tpgList'] {
+    const wanted = name.toLowerCase().replace(/[^a-z]/g, '');
+    const hit = classifications.find(
+      (c) => c.name.toLowerCase().replace(/[^a-z]/g, '') === wanted,
+    );
+    return hit?.tpgList as CouncilItem['tpgList'];
+  }
+
+  private flagSeverity(v: unknown): 'block' | 'warn' | 'info' {
+    return v === 'block' || v === 'warn' || v === 'info' ? v : 'warn';
+  }
+
+  /**
+   * A single guarded JSON round for the council. Throws on unparseable output:
+   * the prescriber call propagates (fatal); the checker calls ride on
+   * Promise.allSettled, so a bad minute degrades instead of killing the draft.
+   */
+  private async councilJson(
+    system: string,
+    user: unknown,
+    temperature: number,
+  ): Promise<Record<string, unknown>> {
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: this.model,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: JSON.stringify(user) },
+        ],
+        temperature,
+      });
+      const text = completion.choices[0].message.content ?? '';
+      // Deliberately stricter than extractJson: that helper maps missing JSON to
+      // '{}', which would silently mask a role's prose refusal. Here a refusal
+      // must register as a failure so it degrades (or kills) the council.
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) {
+        throw new Error('no JSON object in reply');
+      }
+      const parsed = JSON.parse(match[0]) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('council reply was not an object');
+      }
+      return parsed;
+    } catch (error) {
+      throw new Error(
+        `Council role returned invalid JSON: ${(error as Error).message}`,
+      );
+    }
   }
 
   /**
