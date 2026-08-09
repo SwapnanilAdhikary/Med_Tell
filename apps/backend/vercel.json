@@ -2,9 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "framework": null,
-  "buildCommand": "cd ../.. && npm run build --workspace @iem-hacks/backend",
+  "buildCommand": "(cd ../.. && npm run build --workspace @iem-hacks/backend) && mkdir -p public",
   "installCommand": "cd ../.. && npm install --include=dev",
-  "outputDirectory": null,
+  "outputDirectory": "public",
   "functions": {
     "api/index.ts": {
       "maxDuration": 10

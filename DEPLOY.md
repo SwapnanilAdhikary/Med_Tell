@@ -97,7 +97,7 @@ Flags used in prod scripts:
 | Root Directory | `apps/backend` |
 | Framework Preset | Other |
 | Build Command | _(from vercel.json — compiles NestJS to `dist/` for the serverless function)_ |
-| Output Directory | _(leave blank — API-only, no static site)_ |
+| Output Directory | `public` (placeholder static dir; all API traffic rewrites to `/api`) |
 | Install Command | _(from vercel.json — monorepo root install with dev deps)_ |
 
 ### Backend environment variables
@@ -179,7 +179,7 @@ npm run vapi:setup:asha:prod --workspace @iem-hacks/backend
 | Symptom | Fix |
 |---|---|
 | `nest: command not found` on build | Ensure install uses `--include=dev` (see `apps/backend/vercel.json`) so `@nestjs/cli` is installed |
-| No Output Directory named `public` | Set Output Directory to blank in Vercel dashboard, or rely on `"outputDirectory": null` in `vercel.json` |
+| No Output Directory named `public` | Set Output Directory to `public` in Vercel dashboard (matches `vercel.json`); repo includes `apps/backend/public/` |
 | CORS error in browser | Set `CORS_ORIGIN` on backend to exact frontend URL (no path) |
 | 401 on all API calls | Check `JWT_SECRET` matches between seed and deployed backend |
 | Duplicate Vapi assistants | Always set `VAPI_ASSISTANT_ID` / `VAPI_ASHA_ASSISTANT_ID` before running setup; use `--upsert-only` |
