@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsOptional, IsString } from 'class-validator';
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import type { AuthUser } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -79,13 +79,12 @@ export class DocumentsController {
       id,
       user.role === 'patient' ? user.patientId! : undefined,
     );
-    try {
-      return new StreamableFile(createReadStream(doc.filePath), {
-        type: doc.mimeType ?? 'application/octet-stream',
-        disposition: `inline; filename="${encodeURIComponent(doc.filename)}"`,
-      });
-    } catch {
+    if (!existsSync(doc.filePath)) {
       throw new NotFoundException('Document file not found on disk');
     }
+    return new StreamableFile(createReadStream(doc.filePath), {
+      type: doc.mimeType ?? 'application/octet-stream',
+      disposition: `inline; filename="${encodeURIComponent(doc.filename)}"`,
+    });
   }
 }

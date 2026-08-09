@@ -203,6 +203,7 @@ describe('AppointmentsService.book', () => {
 
 describe('AppointmentsService.assign', () => {
   let service: AppointmentsService;
+  let module: TestingModule;
   let appointmentModel: any;
 
   const mockAppointment = (overrides: Record<string, any> = {}) => ({
@@ -223,6 +224,8 @@ describe('AppointmentsService.assign', () => {
       findOne: jest.fn().mockReturnThis(),
       findById: jest.fn().mockReturnThis(),
       findByIdAndUpdate: jest.fn().mockReturnThis(),
+      findOneAndUpdate: jest.fn().mockReturnThis(),
+      exists: jest.fn().mockReturnThis(),
       sort: jest.fn().mockReturnThis(),
       populate: jest.fn().mockReturnThis(),
       lean: jest.fn().mockReturnThis(),
@@ -230,7 +233,7 @@ describe('AppointmentsService.assign', () => {
       countDocuments: jest.fn().mockResolvedValue(0),
     };
 
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         AppointmentsService,
         { provide: getModelToken(Appointment.name), useValue: appointmentModel },
@@ -244,38 +247,55 @@ describe('AppointmentsService.assign', () => {
   });
 
   describe('assign', () => {
-    it('rejects if appointment is not in requested status', async () => {
+    it('throws BadRequest when the appointment is not in requested status', async () => {
+      appointmentModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+      appointmentModel.exists.mockResolvedValue({ _id: 'apt-1' });
+
+      await expect(service.assign('doc-1', 'apt-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('throws NotFound when the appointment does not exist', async () => {
+      appointmentModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+      appointmentModel.exists.mockResolvedValue(null);
+
+      await expect(service.assign('doc-1', 'apt-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('atomically assigns a doctor when the status is requested', async () => {
       const apt = mockAppointment({ status: 'assigned' });
-      appointmentModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(apt) });
+      appointmentModel.findOneAndUpdate.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(apt),
+      });
 
-      await expect(service.assign('doc-1', 'apt-1')).rejects.toThrow(BadRequestException);
-    });
-
-    it('throws NotFound when appointment does not exist', async () => {
-      appointmentModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
-
-      await expect(service.assign('doc-1', 'apt-1')).rejects.toThrow(NotFoundException);
-    });
-
-    it('assigns a doctor when status is requested', async () => {
-      const apt = mockAppointment();
-      appointmentModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(apt) });
-
-      // Mock the follow-up calls
-      const module = await Test.createTestingModule({
-        providers: [
-          AppointmentsService,
-          { provide: getModelToken(Appointment.name), useValue: appointmentModel },
-          { provide: DoctorsService, useValue: { findById: jest.fn().mockResolvedValue({ _id: 'doc-1', title: 'Dr.', firstName: 'Rohan', lastName: 'Mehta', specialty: 'Cardiology' }) } },
-          { provide: PatientsService, useValue: { findById: jest.fn().mockResolvedValue({ _id: 'pat-1', user: 'user-1' }) } },
-          { provide: NotificationsService, useValue: { create: jest.fn() } },
-        ],
-      }).compile();
-      service = module.get<AppointmentsService>(AppointmentsService);
+      const doctorsService = module.get<DoctorsService>(DoctorsService);
+      const patientsService = module.get<PatientsService>(PatientsService);
+      (doctorsService.findById as jest.Mock).mockResolvedValue({
+        _id: 'doc-1',
+        name: 'Rohan Mehta',
+        specialty: 'Cardiology',
+      });
+      (patientsService.findById as jest.Mock).mockResolvedValue({
+        _id: 'pat-1',
+        user: 'user-1',
+      });
 
       const result = await service.assign('doc-1', 'apt-1');
-      expect(apt.status).toBe('assigned');
-      expect(apt.save).toHaveBeenCalled();
+
+      expect(appointmentModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'apt-1', status: 'requested' },
+        { doctor: 'doc-1', status: 'assigned' },
+        { new: true },
+      );
+      expect(apt.populate).toHaveBeenCalledWith('patient');
+      expect(result).toBe(apt);
     });
   });
 });
