@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 
 interface CallModalProps {
+  /** Default keeps the patient screen byte-identical. */
+  title?: string
+  subtitle?: string
   phase: 'ringing' | 'active'
   speaking: boolean
   muted: boolean
@@ -44,7 +47,15 @@ function CallButton({
   )
 }
 
-export function CallModal({ phase, speaking, muted, onToggleMute, onEnd }: CallModalProps) {
+export function CallModal({
+  title = 'MedAssist AI',
+  subtitle = 'Connecting you to your health assistant',
+  phase,
+  speaking,
+  muted,
+  onToggleMute,
+  onEnd,
+}: CallModalProps) {
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef<number | null>(null)
 
@@ -80,13 +91,13 @@ export function CallModal({ phase, speaking, muted, onToggleMute, onEnd }: CallM
           <div className={`call-avatar-wrap ${phase === 'ringing' ? 'ringing' : ''}`}>
             <div className="call-avatar">+</div>
           </div>
-          <div className="call-name">MedAssist AI</div>
+          <div className="call-name">{title}</div>
           <div className={`call-status${phase === 'ringing' ? ' ringing' : ''}`}>
             {phase === 'ringing' ? 'Ringing…' : speaking ? 'Speaking…' : 'On call'}
           </div>
           <div className="call-meta">
             {phase === 'ringing'
-              ? 'Connecting you to your health assistant'
+              ? subtitle
               : fmtDuration(elapsed)}
           </div>
         </div>

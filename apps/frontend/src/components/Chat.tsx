@@ -178,6 +178,16 @@ export function Chat() {
   }, [loadHistory])
 
   useEffect(() => {
+    // A doctor can write into this thread at any time, and there are no sockets.
+    // Skipped while a send is in flight: the optimistic user message and the
+    // typed-out reply are local-only until finishReply, so refetching mid-send
+    // would wipe them off the screen.
+    if (busy || pendingReply) return
+    const t = setInterval(() => void loadHistory(), 12000)
+    return () => clearInterval(t)
+  }, [loadHistory, busy, pendingReply])
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, pendingReply])
 
@@ -243,32 +253,30 @@ export function Chat() {
 
   const onFile = async (file: File) => {
     setBusy(true)
+    setMessages((m) => [
+      ...m,
+      {
+        _id: `user-${Date.now()}`,
+        role: 'user',
+        content: `I've uploaded my report: ${file.name}`,
+        createdAt: new Date().toISOString(),
+      },
+    ])
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const doc = await api<{ _id: string }>('/api/documents/upload', {
+      const res = await api<SendResult>('/api/chat/document', {
         method: 'POST',
         body: fd,
-      })
-      await api(`/api/documents/${doc._id}/analyze`, { method: 'POST', body: '{}' })
-      setMessages((m) => [
-        ...m,
-        {
-          _id: `user-${Date.now()}`,
-          role: 'user',
-          content: `[Attached: ${file.name}] Please analyze this medical document.`,
-          createdAt: new Date().toISOString(),
-        },
-      ])
-      const res = await api<SendResult>('/api/chat/message', {
-        method: 'POST',
-        body: JSON.stringify({ message: `I uploaded my medical document: ${file.name}. Please acknowledge and tell me the next steps.` }),
       })
       pendingRef.current = res.reply
       pendingActionsRef.current = res.actions ?? []
       setPendingReply(res.reply)
-    } catch {
-      pendingRef.current = 'Upload failed. Please try another file (max 10MB).'
+    } catch (e) {
+      pendingRef.current =
+        e instanceof Error
+          ? e.message
+          : 'Upload failed. Please try another file (max 5MB).'
       pendingActionsRef.current = []
       setPendingReply(pendingRef.current)
     }
@@ -368,7 +376,12 @@ export function Chat() {
         )}
         {messages.map((m) => (
           <div key={m._id} className={`msg ${m.role === 'user' ? 'msg-user' : 'msg-ai'}`}>
-            <div className="msg-bubble">
+            <div className={`msg-bubble${m.metadata?.author === 'doctor' ? ' msg-doctor' : ''}`}>
+              {m.metadata?.author === 'doctor' && (
+                <div className="msg-author">
+                  Dr. {m.metadata.doctorName ?? 'your doctor'}
+                </div>
+              )}
               <div className="msg-text">{m.content}</div>
               <div className="msg-meta">
                 <span className="msg-time">{fmtTime(m.createdAt)}</span>
@@ -419,7 +432,7 @@ export function Chat() {
         <input
           ref={fileRef}
           type="file"
-          accept="image/*,application/pdf"
+          accept="image/png,image/jpeg,image/webp,application/pdf"
           style={{ display: 'none' }}
           onChange={(e) => {
             const f = e.target.files?.[0]

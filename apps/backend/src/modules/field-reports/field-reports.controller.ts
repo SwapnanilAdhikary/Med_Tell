@@ -1,12 +1,27 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+  StreamableFile,
+} from '@nestjs/common';
+import { createReadStream } from 'node:fs';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -42,6 +57,16 @@ class GeoDto {
   @Min(0)
   @Max(100_000)
   accuracyM?: number;
+
+  /**
+   * The worker tapped the map instead of using a device fix. The only
+   * client-settable part of location.source, and it can only ever weaken the
+   * claim: the server still refuses to be told 'assigned' or 'spoken', which
+   * are the values it fabricates itself.
+   */
+  @IsOptional()
+  @IsBoolean()
+  picked?: boolean;
 }
 
 /** Real ranges, so a fat-fingered entry 400s instead of reaching a doctor. */
@@ -61,8 +86,14 @@ class SubjectDto {
   @MaxLength(120)
   name!: string;
 
+  // @IsNotEmpty matters: User.phone is unique, so an empty string would make
+  // every anonymous villager resolve to one shared patient record.
   @IsString()
+  @IsNotEmpty()
   @MaxLength(20)
+  @Matches(/^[+\d][\d\s-]*$/, {
+    message: 'phone must be digits, and may start with +',
+  })
   phone!: string;
 
   @IsOptional() @IsNumber() @Min(0) @Max(120) ageYears?: number;
@@ -132,6 +163,23 @@ export class FieldReportsController {
     return this.fieldReportsService.submit(user.workerId, body);
   }
 
+  /** Declared before ':id' or Nest would route "transcribe" into the id param. */
+  @Post('transcribe')
+  @Roles('health_worker')
+  @UseInterceptors(FileInterceptor('audio'))
+  transcribe(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() audio: Express.Multer.File | undefined,
+    @Body() body: { language?: string },
+  ) {
+    if (!audio) throw new BadRequestException('No audio was uploaded');
+    return this.fieldReportsService.transcribe(
+      user.workerId,
+      audio.path,
+      body.language,
+    );
+  }
+
   @Get('mine')
   @Roles('health_worker')
   mine(@CurrentUser() user: AuthUser) {
@@ -142,5 +190,29 @@ export class FieldReportsController {
   @Roles('health_worker')
   one(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.fieldReportsService.findForWorker(user.workerId, id);
+  }
+
+  /**
+   * The signed prescription for a report, for the worker who filed it.
+   *
+   * It hangs off the report rather than /api/prescriptions/:id because the
+   * ownership rule is "you filed this report" - findForWorker already enforces
+   * exactly that, and PrescriptionsModule would need a forwardRef back to this
+   * module to ask the same question.
+   */
+  @Get(':id/prescription/pdf')
+  @Roles('health_worker')
+  async prescriptionPdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+  ): Promise<StreamableFile> {
+    const filePath = await this.fieldReportsService.prescriptionPdfPath(
+      user.workerId,
+      id,
+    );
+    return new StreamableFile(createReadStream(filePath), {
+      type: 'application/pdf',
+      disposition: `inline; filename="prescription-${id}.pdf"`,
+    });
   }
 }

@@ -229,12 +229,52 @@ describe('AiService.extractFieldReport', () => {
     const result = await service.extractFieldReport({ rawText: 'fever' });
 
     expect(result).toEqual({
+      // A worker's visit must never be demoted to a memo by a bad reply.
+      kind: 'report',
       subject: {},
       symptoms: [],
       vitals: {},
       dangerSigns: [],
       redFlags: [],
     });
+  });
+
+  it('asks the model to classify report vs note', async () => {
+    await build('{}');
+    await service.extractFieldReport({ rawText: 'fever' });
+    expect(systemPrompt()).toContain('"kind"');
+    expect(systemPrompt()).toContain('When in doubt, choose "report"');
+  });
+
+  it('keeps an explicit note as a note', async () => {
+    await build(JSON.stringify({ kind: 'note', noteTitle: 'BP cuff broken' }));
+    const result = await service.extractFieldReport({ rawText: 'cuff broken' });
+    expect(result.kind).toBe('note');
+    expect(result.noteTitle).toBe('BP cuff broken');
+  });
+
+  it('treats a null kind as a report, not a note', async () => {
+    // The spread in parseJson would otherwise let null overwrite the default.
+    await build(JSON.stringify({ kind: null, symptoms: ['fever'] }));
+    expect((await service.extractFieldReport({ rawText: 'x' })).kind).toBe(
+      'report',
+    );
+  });
+
+  it('overrides a note classification when danger signs are present', async () => {
+    await build(
+      JSON.stringify({ kind: 'note', dangerSigns: ['chest indrawing'] }),
+    );
+    expect((await service.extractFieldReport({ rawText: 'x' })).kind).toBe(
+      'report',
+    );
+  });
+
+  it('overrides a note classification when the case is urgent', async () => {
+    await build(JSON.stringify({ kind: 'note', urgency: 'emergency' }));
+    expect((await service.extractFieldReport({ rawText: 'x' })).kind).toBe(
+      'report',
+    );
   });
 
   it('returns the fallback for truncated JSON instead of throwing', async () => {

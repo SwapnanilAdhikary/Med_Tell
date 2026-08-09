@@ -8,8 +8,10 @@ import { VerificationService } from './verification.service';
 import { VerificationController } from './verification.controller';
 import { DocumentsModule } from '../documents/documents.module';
 import { CertificatesModule } from '../certificates/certificates.module';
+import { PrescriptionsModule } from '../prescriptions/prescriptions.module';
 import { PatientsModule } from '../patients/patients.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ConversationsModule } from '../conversations/conversations.module';
 
 @Module({
   imports: [
@@ -18,8 +20,11 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ]),
     forwardRef(() => DocumentsModule),
     forwardRef(() => CertificatesModule),
+    forwardRef(() => PrescriptionsModule),
     PatientsModule,
     NotificationsModule,
+    // A leaf module - no forwardRef needed.
+    ConversationsModule,
   ],
   controllers: [VerificationController],
   providers: [VerificationService],

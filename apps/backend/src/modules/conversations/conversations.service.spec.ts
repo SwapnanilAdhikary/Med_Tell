@@ -154,5 +154,90 @@ describe('ConversationsService', () => {
         { role: 'assistant', content: 'how can I help' },
       ]);
     });
+
+    it('prefixes a doctor-authored message so the model knows who spoke', async () => {
+      // The role stays 'assistant' - OpenAI has no 'doctor' role, and history()
+      // filters to user/assistant, so a new role would be silently dropped.
+      messageModel.find.mockReturnValue(
+        makeQueryChain([
+          {
+            role: 'assistant',
+            content: 'Stop the ibuprofen and come in tomorrow.',
+            metadata: { author: 'doctor', doctorName: 'Kavita Ghosh' },
+          },
+        ]),
+      );
+
+      expect(await service.history('conv-1')).toEqual([
+        {
+          role: 'assistant',
+          content:
+            '[Dr. Kavita Ghosh]: Stop the ibuprofen and come in tomorrow.',
+        },
+      ]);
+    });
+
+    it('leaves an ordinary assistant message untouched', async () => {
+      messageModel.find.mockReturnValue(
+        makeQueryChain([
+          { role: 'assistant', content: 'plain', metadata: { actions: [] } },
+        ]),
+      );
+
+      expect(await service.history('conv-1')).toEqual([
+        { role: 'assistant', content: 'plain' },
+      ]);
+    });
+  });
+
+  describe('setHandoff', () => {
+    function existing() {
+      conversationModel.findOne.mockReturnValue(
+        makeFindOneChain({ _id: 'conv-1' }),
+      );
+      conversationModel.findByIdAndUpdate.mockReturnValue(
+        makeFindOneChain({ _id: 'conv-1' }),
+      );
+    }
+
+    it('stamps the doctor and the time when taking over', async () => {
+      existing();
+
+      await service.setHandoff('patient-1', 'doctor-1');
+
+      const [id, update] = conversationModel.findByIdAndUpdate.mock.calls[0];
+      expect(id).toBe('conv-1');
+      expect(update.handoffDoctor).toBe('doctor-1');
+      expect(update.handoffAt).toBeInstanceOf(Date);
+    });
+
+    it('unsets both fields on release, so handoffAt is falsy again', async () => {
+      existing();
+
+      await service.setHandoff('patient-1');
+
+      expect(conversationModel.findByIdAndUpdate.mock.calls[0][1]).toEqual({
+        $unset: { handoffAt: '', handoffDoctor: '' },
+      });
+    });
+
+    it('creates the conversation rather than upserting on an $in filter', async () => {
+      // An upsert keyed on idFilter's `$in` cannot derive `patient`, and wrote a
+      // conversation belonging to nobody.
+      conversationModel.findOne.mockReturnValue(makeFindOneChain(null));
+      conversationModel.create.mockResolvedValue({ _id: 'conv-new' });
+      conversationModel.findByIdAndUpdate.mockReturnValue(
+        makeFindOneChain({ _id: 'conv-new' }),
+      );
+
+      await service.setHandoff('patient-1', 'doctor-1');
+
+      expect(conversationModel.create).toHaveBeenCalledWith({
+        patient: 'patient-1',
+      });
+      expect(conversationModel.findByIdAndUpdate.mock.calls[0][0]).toBe(
+        'conv-new',
+      );
+    });
   });
 });

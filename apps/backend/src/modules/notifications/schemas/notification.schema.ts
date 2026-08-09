@@ -4,7 +4,12 @@ import { HydratedDocument, Types } from 'mongoose';
 export type NotificationDocument = HydratedDocument<AppNotification>;
 
 export type NotificationType =
-  'appointment' | 'verification' | 'certificate' | 'document' | 'system';
+  | 'appointment'
+  | 'verification'
+  | 'certificate'
+  | 'document'
+  | 'chat'
+  | 'system';
 
 @Schema({ timestamps: true })
 export class AppNotification {
@@ -19,7 +24,14 @@ export class AppNotification {
 
   @Prop({
     type: String,
-    enum: ['appointment', 'verification', 'certificate', 'document', 'system'],
+    enum: [
+      'appointment',
+      'verification',
+      'certificate',
+      'document',
+      'chat',
+      'system',
+    ],
     default: 'system',
   })
   type: NotificationType;

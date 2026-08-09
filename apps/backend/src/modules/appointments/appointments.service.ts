@@ -38,6 +38,18 @@ export interface BookAppointmentInput {
     village?: string;
     facilityName?: string;
   };
+  /**
+   * Who gets the "consultation requested" message. Defaults to the patient's
+   * own user; a villager with no phone has no account they can ever log into,
+   * so the reporting worker is told instead.
+   */
+  notifyUser?: string | Types.ObjectId;
+  /**
+   * The reporting worker's user. On an in-person referral they are notified as
+   * well as the patient - they are the one who walks the patient there.
+   */
+  workerUser?: string | Types.ObjectId;
+  facilityPhone?: string;
 }
 
 /** What the AI hands back to the caller after routing a consultation. */
@@ -47,6 +59,14 @@ export interface MatchedDoctorSummary {
   title?: string;
   specialty: string;
 }
+
+/** How soon, in words a patient can act on. */
+const TIMEFRAME: Record<string, string> = {
+  emergency: 'right now',
+  urgent: 'today',
+  'semi-urgent': 'within two days',
+  routine: 'within a week',
+};
 
 function bullet(label: string, values?: string[]): string {
   const list = (values ?? []).filter(Boolean);
@@ -84,10 +104,21 @@ export class AppointmentsService {
       suggestedDoctor: doctor?._id,
       suggestedSpecialty: input.specialty,
       callSession: input.callSessionId,
+      // Referrals are 'assigned': the facility is the destination, so there is
+      // no doctor left to claim it.
+      ...(input.type === 'in-person' ? { status: 'assigned' } : {}),
       aiNotes: {
         ...(input.aiNotes ?? {}),
         ...(input.symptoms?.length ? { symptoms: input.symptoms } : {}),
         ...(input.urgency ? { urgency: input.urgency } : {}),
+        ...(input.type === 'in-person'
+          ? {
+              referredFrom: input.reportedBy?.workerName ?? 'MedAssist',
+              facility: input.reportedBy?.facilityName,
+              facilityPhone: input.facilityPhone,
+              timeframe: TIMEFRAME[input.urgency ?? ''] ?? 'as soon as you can',
+            }
+          : {}),
       },
       callBackJob: {
         preferredWindow: input.preferredWindow,
@@ -134,19 +165,35 @@ export class AppointmentsService {
 
     // The doctor's details, back to the patient.
     const inPerson = (input.type ?? 'call-back') === 'in-person';
+    const facility =
+      input.reportedBy?.facilityName ?? 'your nearest health facility';
+    const timeframe = TIMEFRAME[input.urgency ?? ''] ?? 'as soon as you can';
     await this.notificationsService.create({
-      user: patient.user,
-      title: 'Consultation requested',
+      user: input.notifyUser ?? patient.user,
+      title: inPerson ? 'Go to a health facility' : 'Consultation requested',
       body: inPerson
         ? // Deliberately unnamed: the facility is the nearest one, the matched
           // doctor may work elsewhere, and promising both sends people wrong.
-          `Please visit ${input.reportedBy?.facilityName ?? 'your nearest health facility'} as soon as you can. Show this message when you arrive.`
+          `Please visit ${facility} ${timeframe}${input.facilityPhone ? `, phone ${input.facilityPhone}` : ''}. Show this message when you arrive.`
         : doctor
           ? `You have been matched with ${this.doctorLabel(doctor)}. They will confirm and call you back${input.preferredWindow ? ` (${input.preferredWindow})` : ''}.`
           : `A doctor will call you back${input.preferredWindow ? ` (${input.preferredWindow})` : ''}.`,
       type: 'appointment',
       ref: doctor ? { ...ref, doctorId: doctor._id.toString() } : ref,
     });
+
+    // A referral is a journey, and the ASHA is the person who physically walks
+    // it with them - so they are told IN ADDITION to the patient, not instead.
+    // No PDF: a referral is not a signed prescription.
+    if (inPerson && input.workerUser && input.workerUser !== input.notifyUser) {
+      await this.notificationsService.create({
+        user: input.workerUser,
+        title: `Referral: take ${patient.name} to ${facility}`,
+        body: `${patient.name} needs to be seen ${timeframe} at ${facility}${input.facilityPhone ? ` (${input.facilityPhone})` : ''}.${input.urgency ? ` Urgency: ${input.urgency}.` : ''} Go with them if you can.`,
+        type: 'appointment',
+        ref: { ...ref, patientId: patient._id.toString() },
+      });
+    }
 
     return { appointment, doctor: this.doctorSummary(doctor) };
   }

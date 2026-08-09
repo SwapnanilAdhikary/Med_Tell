@@ -5,6 +5,8 @@ import { VerificationService } from './verification.service';
 import { VerificationTask } from './schemas/verification-task.schema';
 import { DocumentsService } from '../documents/documents.service';
 import { CertificatesService } from '../certificates/certificates.service';
+import { PrescriptionsService } from '../prescriptions/prescriptions.service';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PatientsService } from '../patients/patients.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -40,6 +42,13 @@ describe('VerificationService', () => {
     issue: jest.fn(),
     reject: jest.fn(),
   };
+  const prescriptionsService = {
+    issue: jest.fn(),
+    reject: jest.fn(),
+  };
+  const conversationsService = {
+    setHandoff: jest.fn().mockResolvedValue({}),
+  };
   const patientsService = {
     findById: jest.fn().mockResolvedValue({ user: 'user-1' }),
   };
@@ -62,8 +71,10 @@ describe('VerificationService', () => {
         { provide: getModelToken(VerificationTask.name), useValue: taskModel },
         { provide: DocumentsService, useValue: documentsService },
         { provide: CertificatesService, useValue: certificatesService },
+        { provide: PrescriptionsService, useValue: prescriptionsService },
         { provide: PatientsService, useValue: patientsService },
         { provide: NotificationsService, useValue: notificationsService },
+        { provide: ConversationsService, useValue: conversationsService },
       ],
     }).compile();
 
@@ -154,6 +165,103 @@ describe('VerificationService', () => {
     });
   });
 
+  describe('prescription tasks', () => {
+    const EDIT = {
+      items: [{ name: 'Amoxicillin', dose: '500 mg', durationDays: 5 }],
+    };
+
+    it('issues with no edit on a plain approve, so issue() falls back to draftItems', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+      prescriptionsService.issue.mockResolvedValue({});
+
+      const result = (await service.approve(
+        'task-1',
+        'doctor-1',
+      )) as unknown as Record<string, unknown>;
+
+      expect(prescriptionsService.issue).toHaveBeenCalledWith(
+        'rx-1',
+        'doctor-1',
+        undefined,
+      );
+      // The catch-all else must not have fired: no "a doctor reviewed your
+      // call" for a prescription.
+      expect(notificationsService.create).not.toHaveBeenCalled();
+      expect(result.status).toBe('approved');
+    });
+
+    it('persists doctorEdit, signs the edit, and marks the task edited', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+      prescriptionsService.issue.mockResolvedValue({});
+
+      const result = (await service.approveWithEdit(
+        'task-1',
+        'doctor-1',
+        EDIT,
+        'swapped the antibiotic',
+      )) as unknown as Record<string, unknown>;
+
+      expect(prescriptionsService.issue).toHaveBeenCalledWith(
+        'rx-1',
+        'doctor-1',
+        EDIT,
+      );
+      expect(result.doctorEdit).toEqual(EDIT);
+      expect(result.status).toBe('edited');
+      expect(result.doctorComment).toBe('swapped the antibiotic');
+    });
+
+    it('leaves the task pending when signing fails, so it can be re-decided', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+      prescriptionsService.issue.mockRejectedValue(
+        new Error('no registration number'),
+      );
+
+      await expect(
+        service.approveWithEdit('task-1', 'doctor-1', EDIT),
+      ).rejects.toThrow('no registration number');
+
+      expect(task.status).toBe('pending');
+      expect(task.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects through the prescriptions service, not the catch-all', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+
+      await service.reject('task-1', 'doctor-1', 'wrong drug');
+
+      expect(prescriptionsService.reject).toHaveBeenCalledWith(
+        'rx-1',
+        'doctor-1',
+        'wrong drug',
+      );
+      // A declined prescription is where the patient needs a person.
+      expect(conversationsService.setHandoff).toHaveBeenCalledWith(
+        'patient-1',
+        'doctor-1',
+      );
+      expect(task.status).toBe('rejected');
+    });
+
+    it('still rejects when opening the handoff fails', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+      conversationsService.setHandoff.mockRejectedValue(
+        new Error('mongo down'),
+      );
+
+      await service.reject('task-1', 'doctor-1', 'wrong drug');
+
+      // The rejection is the medically important half; chat is a convenience.
+      expect(task.status).toBe('rejected');
+      expect(task.save).toHaveBeenCalled();
+    });
+  });
+
   describe('reject', () => {
     it('rejects a document and saves the task as rejected', async () => {
       const task = makeTask({ taskType: 'document', refId: 'doc-1' });
@@ -169,6 +277,15 @@ describe('VerificationService', () => {
       );
       expect(result.status).toBe('rejected');
       expect(task.save).toHaveBeenCalled();
+    });
+
+    it('does not open a chat handoff when rejecting a certificate', async () => {
+      const task = makeTask({ taskType: 'certificate', refId: 'cert-1' });
+      findByIdReturns(task);
+
+      await service.reject('task-1', 'doctor-1', 'wrong dates');
+
+      expect(conversationsService.setHandoff).not.toHaveBeenCalled();
     });
 
     it('rejects a certificate', async () => {

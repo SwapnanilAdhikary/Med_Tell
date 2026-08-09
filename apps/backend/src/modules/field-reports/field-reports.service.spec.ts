@@ -9,11 +9,14 @@ import { AuthService } from '../auth/auth.service';
 import { HealthWorkersService } from '../health-workers/health-workers.service';
 import { FacilitiesService } from '../facilities/facilities.service';
 import { AppointmentsService } from '../appointments/appointments.service';
+import { FieldNotesService } from '../field-notes/field-notes.service';
+import { PrescriptionsService } from '../prescriptions/prescriptions.service';
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/require-await, @typescript-eslint/unbound-method */
 
 const WORKER = {
   _id: 'worker-1',
+  user: 'user-1',
   name: 'Anjali Roy',
   cadre: 'ASHA',
   village: 'Beldanga',
@@ -26,6 +29,7 @@ const WORKER = {
 const FACILITY = { _id: 'facility-1', name: 'PHC Beldanga' };
 
 const EMPTY_EXTRACTION = {
+  kind: 'report' as const,
   subject: {},
   symptoms: [],
   vitals: {},
@@ -56,6 +60,8 @@ describe('FieldReportsService', () => {
   const healthWorkersService = { findById: jest.fn() };
   const facilitiesService = { findNearest: jest.fn() };
   const appointmentsService = { book: jest.fn() };
+  const fieldNotesService = { create: jest.fn() };
+  const prescriptionsService = { request: jest.fn(), pdfPath: jest.fn() };
 
   /** The document handed to reportModel.create. */
   const createdWith = () => reportModel.create.mock.calls[0][0];
@@ -73,10 +79,12 @@ describe('FieldReportsService', () => {
     });
     facilitiesService.findNearest.mockResolvedValue({ ...FACILITY });
     aiService.extractFieldReport.mockResolvedValue({ ...EMPTY_EXTRACTION });
+    fieldNotesService.create.mockResolvedValue({ _id: 'note-1' });
     appointmentsService.book.mockResolvedValue({
       appointment: { _id: 'appt-1' },
       doctor: { name: 'Ananya Banerjee', specialty: 'General Medicine' },
     });
+    prescriptionsService.request.mockResolvedValue({ _id: 'rx-1' });
     // Echo the created document so the service can mutate and save it.
     reportModel.create.mockImplementation(async (doc: object) => ({
       ...doc,
@@ -93,6 +101,8 @@ describe('FieldReportsService', () => {
         { provide: HealthWorkersService, useValue: healthWorkersService },
         { provide: FacilitiesService, useValue: facilitiesService },
         { provide: AppointmentsService, useValue: appointmentsService },
+        { provide: FieldNotesService, useValue: fieldNotesService },
+        { provide: PrescriptionsService, useValue: prescriptionsService },
       ],
     }).compile();
 
@@ -139,16 +149,48 @@ describe('FieldReportsService', () => {
       );
     });
 
-    it('ignores body coordinates on a voice report, so source gps is never a lie', async () => {
-      await service.submit(
-        'worker-1',
-        input({ geo: { lat: 1, lng: 2 } }),
-        'voice',
-      );
+    it('ignores coordinates from an untrusted transport, so a fix is never faked', async () => {
+      // The predicate is trust, not modality: nothing but an authenticated
+      // browser session can produce a coordinate.
+      await service.submit('worker-1', input({ geo: { lat: 1, lng: 2 } }), {
+        channel: 'voice',
+        trustGeo: false,
+      });
 
       expect(createdWith().location.source).toBe('assigned');
       expect(createdWith().location.point.coordinates).toEqual([88.24, 23.92]);
       expect(createdWith().channel).toBe('voice');
+    });
+
+    it('keeps the tapped point on an in-browser voice call', async () => {
+      // A worker calling from the map has a real browser and a real pin, so
+      // gating on channel would have thrown the location away.
+      await service.submit(
+        'worker-1',
+        input({ geo: { lat: 23.93, lng: 88.25, picked: true } }),
+        { channel: 'voice', trustGeo: true },
+      );
+
+      expect(createdWith().channel).toBe('voice');
+      expect(createdWith().location.source).toBe('picked');
+      expect(createdWith().location.point.coordinates).toEqual([88.25, 23.93]);
+    });
+
+    it('falls back to the assigned area when a call carries no point', async () => {
+      await service.submit('worker-1', input(), { channel: 'voice' });
+      expect(createdWith().location.source).toBe('assigned');
+    });
+
+    it('records a tapped pin as picked, not gps, and drops the accuracy', async () => {
+      await service.submit(
+        'worker-1',
+        input({ geo: { lat: 23.93, lng: 88.25, accuracyM: 12, picked: true } }),
+      );
+
+      expect(createdWith().location.source).toBe('picked');
+      // A tapped point has no measured accuracy, so claiming one would be a lie.
+      expect(createdWith().location.accuracyM).toBeUndefined();
+      expect(createdWith().location.point.coordinates).toEqual([88.25, 23.93]);
     });
 
     it('keeps the area denormalised on the report', async () => {
@@ -378,6 +420,45 @@ describe('FieldReportsService', () => {
       );
       expect(bookedWith().vitals).toEqual(['temp 39.2 °C', 'SpO2 94%']);
     });
+
+    it('drafts a council prescription for a simple illness', async () => {
+      const report = await service.submit(
+        'worker-1',
+        input({
+          subject: { name: 'Sita Devi', phone: '+919555512345', ageYears: 34 },
+          symptoms: ['fever'],
+        }),
+      );
+
+      expect(prescriptionsService.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          patientId: 'patient-1',
+          fieldReportId: 'report-1',
+          consultMode: 'teleconsult',
+        }),
+      );
+      expect(report.prescription).toBe('rx-1');
+      expect(report.status).toBe('routed');
+    });
+
+    it('does not draft when the case escalated to in-person', async () => {
+      aiService.extractFieldReport.mockResolvedValue({
+        ...EMPTY_EXTRACTION,
+        urgency: 'urgent',
+      });
+      await service.submit('worker-1', input());
+      expect(bookedWith().type).toBe('in-person');
+      expect(prescriptionsService.request).not.toHaveBeenCalled();
+    });
+
+    it('keeps the report routed when the council fails', async () => {
+      prescriptionsService.request.mockRejectedValue(new Error('429 rate limit'));
+
+      const report = await service.submit('worker-1', input());
+
+      expect(report.status).toBe('routed');
+      expect(report.prescription).toBeUndefined();
+    });
   });
 
   describe('specialty routing', () => {
@@ -438,6 +519,131 @@ describe('FieldReportsService', () => {
     });
   });
 
+  describe('ingestFromCall', () => {
+    const call = {
+      transcript: 'Sita Devi, 34, fever three days, getting worse.',
+      geo: { lat: 23.93, lng: 88.25, picked: true },
+      workerPhone: '+919700000001',
+    };
+
+    it('files a report when the call is about a person', async () => {
+      aiService.extractFieldReport.mockResolvedValue({
+        ...EMPTY_EXTRACTION,
+        subject: { name: 'Sita Devi', phone: '+919555512345', ageYears: 34 },
+        symptoms: ['fever'],
+      });
+
+      const out = await service.ingestFromCall('worker-1', call);
+
+      expect(out.kind).toBe('report');
+      expect(fieldNotesService.create).not.toHaveBeenCalled();
+      expect(createdWith().channel).toBe('voice');
+      // The tapped pin survives, unlike a phone-in call.
+      expect(createdWith().location.source).toBe('picked');
+      expect(createdWith().subjectReachable).toBe(true);
+    });
+
+    it('calls the model once, not once per layer', async () => {
+      await service.ingestFromCall('worker-1', call);
+      expect(aiService.extractFieldReport).toHaveBeenCalledTimes(1);
+    });
+
+    it('saves a note when the call is not about a person', async () => {
+      aiService.extractFieldReport.mockResolvedValue({
+        ...EMPTY_EXTRACTION,
+        kind: 'note',
+        noteTitle: 'BP cuff broken',
+      });
+
+      const out = await service.ingestFromCall('worker-1', call);
+
+      expect(out).toEqual(
+        expect.objectContaining({ kind: 'note', noteId: 'note-1' }),
+      );
+      expect(reportModel.create).not.toHaveBeenCalled();
+      expect(appointmentsService.book).not.toHaveBeenCalled();
+      expect(fieldNotesService.create).toHaveBeenCalledWith(
+        'worker-1',
+        expect.objectContaining({
+          title: 'BP cuff broken',
+          body: call.transcript,
+          geo: { lat: 23.93, lng: 88.25 },
+        }),
+      );
+    });
+
+    it('files a REPORT when classification fails, never a note', async () => {
+      // A note reaches no doctor, so an outage must not silently demote a visit.
+      aiService.extractFieldReport.mockRejectedValue(new Error('503'));
+
+      const out = await service.ingestFromCall('worker-1', call);
+
+      expect(out.kind).toBe('report');
+      expect(fieldNotesService.create).not.toHaveBeenCalled();
+      expect(createdWith().rawTranscript).toBe(call.transcript);
+      expect(appointmentsService.book).toHaveBeenCalled();
+    });
+
+    describe('when the call captured no phone number', () => {
+      beforeEach(() => {
+        aiService.extractFieldReport.mockResolvedValue({
+          ...EMPTY_EXTRACTION,
+          subject: { name: 'Sita Devi', phone: null },
+        });
+      });
+
+      it('uses a synthetic local identity that is not dialable', async () => {
+        await service.ingestFromCall('worker-1', call);
+
+        const [phone] = authService.findOrCreatePatientByPhone.mock.calls[0];
+        expect(phone).toBe('local:worker-1:sita-devi');
+        expect(createdWith().subjectReachable).toBe(false);
+      });
+
+      it('resolves the same person to one patient across two calls', async () => {
+        await service.ingestFromCall('worker-1', call);
+        await service.ingestFromCall('worker-1', call);
+
+        const [[first], [second]] =
+          authService.findOrCreatePatientByPhone.mock.calls;
+        expect(first).toBe(second);
+      });
+
+      it('sends the reply to the worker and gives the doctor their number', async () => {
+        await service.ingestFromCall('worker-1', call);
+
+        expect(bookedWith().notifyUser).toBe('user-1');
+        expect(bookedWith().bestContactNumber).toBe('+919700000001');
+      });
+
+      it('still names the subject rather than deriving one from the key', async () => {
+        // placeholderName would turn local:…:sita-devi into "Caller devi".
+        await service.ingestFromCall('worker-1', call);
+        expect(authService.findOrCreatePatientByPhone).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({ name: 'Sita Devi' }),
+        );
+      });
+    });
+
+    it('notifies the patient normally when a real number was captured', async () => {
+      aiService.extractFieldReport.mockResolvedValue({
+        ...EMPTY_EXTRACTION,
+        subject: { name: 'Sita Devi', phone: '+919555512345' },
+      });
+
+      await service.ingestFromCall('worker-1', call);
+
+      expect(bookedWith().notifyUser).toBeUndefined();
+    });
+
+    it('refuses a token with no worker id', async () => {
+      await expect(service.ingestFromCall(undefined, call)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+  });
+
   describe('the worker id', () => {
     it('refuses a token with no worker id instead of writing worker: undefined', async () => {
       await expect(service.submit(undefined, input())).rejects.toThrow(
@@ -474,6 +680,43 @@ describe('FieldReportsService', () => {
       await expect(
         service.findForWorker('worker-1', 'report-9'),
       ).rejects.toThrow('Field report not found');
+    });
+
+    describe('prescriptionPdfPath', () => {
+      it('reads the id back off the populated prescription document', async () => {
+        findByIdReturns({
+          _id: 'report-1',
+          worker: 'worker-1',
+          prescription: { _id: 'rx-1', status: 'issued' },
+        });
+        prescriptionsService.pdfPath.mockResolvedValue('/tmp/rx-1.pdf');
+
+        await expect(
+          service.prescriptionPdfPath('worker-1', 'report-1'),
+        ).resolves.toBe('/tmp/rx-1.pdf');
+        expect(prescriptionsService.pdfPath).toHaveBeenCalledWith('rx-1');
+      });
+
+      it('404s for a worker who did not file the report', async () => {
+        findByIdReturns({
+          _id: 'report-9',
+          worker: 'worker-2',
+          prescription: { _id: 'rx-9' },
+        });
+
+        await expect(
+          service.prescriptionPdfPath('worker-1', 'report-9'),
+        ).rejects.toThrow('Field report not found');
+        expect(prescriptionsService.pdfPath).not.toHaveBeenCalled();
+      });
+
+      it('404s when the report has no prescription', async () => {
+        findByIdReturns({ _id: 'report-1', worker: 'worker-1' });
+
+        await expect(
+          service.prescriptionPdfPath('worker-1', 'report-1'),
+        ).rejects.toThrow('No prescription for this report');
+      });
     });
   });
 });

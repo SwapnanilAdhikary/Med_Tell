@@ -5,7 +5,7 @@ import { GeoPoint } from '../../facilities/schemas/facility.schema';
 /** Exactly the vocabulary CallsService already routes on, so the two agree. */
 export type Urgency = 'routine' | 'semi-urgent' | 'urgent' | 'emergency';
 
-export type LocationSource = 'gps' | 'assigned' | 'spoken';
+export type LocationSource = 'gps' | 'picked' | 'assigned' | 'spoken';
 
 export type FieldReportStatus =
   'extracting' | 'submitted' | 'routed' | 'failed';
@@ -69,7 +69,7 @@ export class ReportLocation {
    */
   @Prop({
     type: String,
-    enum: ['gps', 'assigned', 'spoken'],
+    enum: ['gps', 'picked', 'assigned', 'spoken'],
     required: true,
   })
   source!: LocationSource;
@@ -117,9 +117,20 @@ export class FieldReport {
   @Prop({ type: Types.ObjectId, ref: 'Appointment' })
   appointment?: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'Prescription' })
+  prescription?: Types.ObjectId;
+
   /** Denormalised so the worker's screens need no populate and no doctor route. */
   @Prop({ type: Object })
   matchedDoctor?: { name: string; specialty: string; title?: string };
+
+  /**
+   * False when the subject has no dialable number and identity is a synthetic
+   * `local:` key. One field to branch on instead of sniffing the phone string:
+   * the doctor's reply and any prescription go to the reporting worker instead.
+   */
+  @Prop({ default: true })
+  subjectReachable!: boolean;
 
   @Prop({ type: Object })
   consent?: { basis: 'explicit'; at: Date };

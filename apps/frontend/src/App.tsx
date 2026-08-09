@@ -13,12 +13,15 @@ import { DoctorOverview } from './components/doctor/Overview'
 import { CallBacks } from './components/doctor/CallBacks'
 import { Verification } from './components/doctor/Verification'
 import { Records } from './components/doctor/Records'
+import { PatientChat } from './components/doctor/PatientChat'
 import { Landing } from './components/Landing'
 import { Login } from './components/Login'
 import { NewReport } from './components/field/NewReport'
 import { MyReports } from './components/field/MyReports'
 import { ReportDetail } from './components/field/ReportDetail'
 import { WorkerProfile } from './components/field/WorkerProfile'
+import { NotesList, NoteEditor } from './components/field/Notes'
+import { FieldCall } from './components/field/FieldCall'
 
 // mapbox-gl is ~1.8MB. Split out so patients and doctors never download it.
 const FieldMap = lazy(() =>
@@ -97,6 +100,7 @@ function App() {
             <Route path="/doctor/callbacks" element={<CallBacks />} />
             <Route path="/doctor/verify" element={<Verification />} />
             <Route path="/doctor/records" element={<Records />} />
+            <Route path="/doctor/chat/:patientId" element={<PatientChat />} />
           </Route>
           <Route
             element={
@@ -116,6 +120,9 @@ function App() {
                 </Suspense>
               }
             />
+            <Route path="/field/call" element={<FieldCall />} />
+            <Route path="/field/notes" element={<NotesList />} />
+            <Route path="/field/notes/:id" element={<NoteEditor />} />
             <Route path="/field/profile" element={<WorkerProfile />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

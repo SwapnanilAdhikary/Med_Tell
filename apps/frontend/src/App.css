@@ -209,7 +209,7 @@
 .bell:hover {
   background: var(--surface-2);
 }
-
+/* comment */
 .bell-dot {
   position: absolute;
   top: 4px;
@@ -1331,6 +1331,226 @@
   color: var(--text);
 }
 
+/* ===== Capture sheet ===== */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 60;
+  padding: 16px;
+}
+
+.sheet {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 460px;
+  padding: 18px;
+  animation: sheet-up 0.16s ease-out;
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+.sheet-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.sheet-title {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.sheet-sub {
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.sheet-close {
+  margin-left: auto;
+  flex: none;
+  background: var(--surface-2);
+  border: none;
+  border-radius: var(--radius-full);
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.sheet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sheet-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sheet-action:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: var(--primary-border);
+}
+
+.sheet-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sheet-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.sheet-action-icon {
+  font-size: 20px;
+  line-height: 1.2;
+  flex: none;
+}
+
+.sheet-action-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sheet-action-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.sheet-action-detail {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ===== Notes ===== */
+.notes-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.notes-head > :last-child {
+  margin-left: auto;
+}
+
+.note-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.note-area {
+  width: 100%;
+  min-height: 340px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--surface);
+  resize: vertical;
+}
+
+.note-area:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+.call-outcome-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+/* ===== Voice recorder ===== */
+.recorder {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.rec-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot {
+    animation: none;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ===== Map ===== */
 .map-wrap {
   position: relative;
@@ -1392,6 +1612,77 @@
 .map-legend-count {
   font-weight: 700;
   color: var(--text);
+}
+
+.map-legend-facility {
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+/* Labelled, so a facility is never lost under a report pin metres away. */
+.map-facility {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.map-facility-dot {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--text-2);
+  border: 2px solid #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.map-facility-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 4px;
+  padding: 1px 5px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-facility-verified .map-facility-dot {
+  width: 15px;
+  height: 15px;
+  background: var(--primary);
+}
+
+.map-facility-verified .map-facility-label {
+  color: var(--primary-strong);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.layer-toggles {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.layer-toggles .chip {
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.layer-toggles .chip.is-on {
+  opacity: 1;
+  border-color: var(--primary);
+  color: var(--primary-strong);
+}
+
+.layer-toggles .chip:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .map-popup {
@@ -1727,4 +2018,170 @@
   .landing-features {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===== doctor: prescription verification card ===== */
+.rx-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rx-maps {
+  font-size: 12px;
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.rx-editor {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rx-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.rx-input,
+.rx-comment {
+  padding: 7px 9px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  min-width: 0;
+  flex: 1 1 110px;
+}
+
+.rx-input-name {
+  flex: 2 1 160px;
+  font-weight: 600;
+}
+
+.rx-input-days {
+  flex: 0 0 72px;
+}
+
+.rx-comment {
+  margin-top: 10px;
+  width: 100%;
+  flex: none;
+}
+
+.rx-drop {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.rx-drop:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.rx-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.rx-blocked {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.rx-read {
+  margin: 10px 0 0 18px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rx-token {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+/* ===== doctor: patient conversation ===== */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.thread-msg {
+  max-width: 78%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.thread-patient {
+  align-self: flex-start;
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.thread-ai {
+  align-self: flex-end;
+  background: var(--primary-soft);
+  color: var(--text-1);
+}
+
+.thread-who {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 3px;
+}
+
+.thread-compose {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-top: 14px;
+}
+
+.thread-compose .note-area {
+  flex: 1;
+}
+
+.msg-doctor {
+  border-left: 3px solid var(--primary);
+}
+
+.msg-author {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 3px;
 }

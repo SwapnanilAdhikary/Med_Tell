@@ -1,23 +1,47 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, openAuthedFile } from '../../api/client'
-import type { CallSession, MedicalDocument } from '../../api/types'
+import type { CallSession, MedicalDocument, PrescriptionItem } from '../../api/types'
+import { refName } from '../../names'
 
-function PatientName({ v }: { v: { _id: string; name: string } | string }) {
-  if (typeof v === 'string') return <span>—</span>
-  return <span>{v.name}</span>
+/** The doctor's own signing record, so draftItems is included on purpose. */
+interface SignedRx {
+  _id: string
+  patient: { _id: string; name: string } | string | null
+  items?: PrescriptionItem[]
+  draftItems?: PrescriptionItem[]
+  signedBy?: string
+  issuedAt?: string
+  consultMode?: string
+}
+
+function itemLine(item: PrescriptionItem): string {
+  const tokens = [
+    item.dose,
+    item.frequency,
+    item.durationDays != null ? `${item.durationDays} days` : '',
+    item.instructions,
+  ].filter(Boolean)
+  return tokens.length > 0 ? `${item.name} · ${tokens.join(' · ')}` : item.name
+}
+
+function names(items?: PrescriptionItem[]): string {
+  return (items ?? []).map((i) => i.name).join(', ')
 }
 
 export function Records() {
   const [calls, setCalls] = useState<CallSession[]>([])
   const [docs, setDocs] = useState<MedicalDocument[]>([])
+  const [signed, setSigned] = useState<SignedRx[]>([])
 
   const load = useCallback(async () => {
-    const [c, d] = await Promise.all([
+    const [c, d, s] = await Promise.all([
       api<CallSession[]>('/api/calls/all'),
       api<MedicalDocument[]>('/api/documents/all'),
+      api<SignedRx[]>('/api/prescriptions/signed'),
     ])
     setCalls(c)
     setDocs(d)
+    setSigned(s)
   }, [])
 
   useEffect(() => {
@@ -27,6 +51,57 @@ export function Records() {
   return (
     <div className="content">
       <div className="card">
+        <div className="card-title">Prescriptions you signed</div>
+        <div className="card-sub">
+          Your record of what you put your name to, and where it differed from the AI draft.
+        </div>
+        <div className="item-list" style={{ marginTop: 12 }}>
+          {signed.length === 0 && (
+            <div className="empty-state">You have not signed any prescriptions yet</div>
+          )}
+          {signed.map((rx) => {
+            const changed = names(rx.items) !== names(rx.draftItems)
+            return (
+              <div key={rx._id} className="item">
+                <div style={{ fontSize: 20, flex: 'none' }}>💊</div>
+                <div className="item-main">
+                  <div className="rx-head">
+                    <span className="item-title">{refName(rx.patient, '—')}</span>
+                    <span className={`pill ${changed ? 'pill-info' : 'pill-neutral'}`}>
+                      {changed ? 'Edited the draft' : 'Signed as drafted'}
+                    </span>
+                    {rx.issuedAt && (
+                      <span className="item-meta">
+                        {new Date(rx.issuedAt).toLocaleString('en-IN')}
+                      </span>
+                    )}
+                  </div>
+                  <ol className="rx-read">
+                    {(rx.items ?? []).map((item, i) => (
+                      <li key={`${item.name}-${i}`}>{itemLine(item)}</li>
+                    ))}
+                  </ol>
+                  {changed && (
+                    <div className="item-meta">
+                      AI had proposed: {names(rx.draftItems) || 'nothing'}
+                    </div>
+                  )}
+                  {rx.signedBy && <div className="item-meta">{rx.signedBy}</div>}
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: 8 }}
+                    onClick={() => void openAuthedFile(`/api/prescriptions/${rx._id}/pdf`)}
+                  >
+                    Open the signed PDF
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
         <div className="card-title">Recent AI call transcripts</div>
         <div className="card-sub">Full phone/browser call history with AI summaries.</div>
         <div className="item-list" style={{ marginTop: 12 }}>
@@ -36,7 +111,7 @@ export function Records() {
               <div style={{ fontSize: 20, flex: 'none' }}>📞</div>
               <div className="item-main">
                 <div className="item-title">
-                  <PatientName v={c.patient ?? '—'} /> · {c.phoneNumber ?? 'web'}
+                  {refName(c.patient, '—')} · {c.phoneNumber ?? 'web'}
                 </div>
                 {c.summary && (
                   <>
@@ -78,23 +153,13 @@ export function Records() {
               <div style={{ fontSize: 20, flex: 'none' }}>🩺</div>
               <div className="item-main">
                 <div className="item-title">
-                  {d.filename} · <PatientName v={d.patient as never} />
+                  {d.filename} · {refName(d.patient, '—')}
                 </div>                <div className="item-meta">Status: {d.status}</div>
                 {d.aiFindings?.summary && (
                   <div className="item-desc">{d.aiFindings.summary}</div>
                 )}
               </div>
-              <div className="item-actions">
-                {/* A plain link can't send the bearer token, so fetch the file. */}
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() =>
-                    openAuthedFile(`/api/documents/${d._id}/file`).catch(() => {})
-                  }
-                >
-                  View
-                </button>
-              </div>
+              
             </div>
           ))}
         </div>

@@ -24,6 +24,9 @@ export function GeoChip({ location }: { location: FieldReport['location'] }) {
       </span>
     )
   }
+  if (location.source === 'picked') {
+    return <span className="pill pill-info">Pinned on map</span>
+  }
   if (location.source === 'spoken') {
     return <span className="pill pill-warning">Location as spoken</span>
   }

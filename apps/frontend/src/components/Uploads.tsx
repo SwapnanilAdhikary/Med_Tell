@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, openAuthedFile } from '../api/client'
+import { api } from '../api/client'
 import type { MedicalDocument } from '../api/types'
+import { refName } from '../names'
 
 function StatusPill({ status }: { status: MedicalDocument['status'] }) {
   const map: Record<string, { cls: string; label: string }> = {
@@ -15,8 +16,9 @@ function StatusPill({ status }: { status: MedicalDocument['status'] }) {
 }
 
 function PatientName({ doc }: { doc: MedicalDocument }) {
-  if (typeof doc.patient === 'string') return null
-  return <span> · {doc.patient.name}</span>
+  const name = refName(doc.patient, '')
+  if (!name) return null
+  return <span> · {name}</span>
 }
 
 export function Uploads() {
@@ -52,11 +54,10 @@ export function Uploads() {
         }
         const fd = new FormData()
         fd.append('file', file)
-        const doc = await api<{ _id: string }>('/api/documents/upload', {
+         await api('/api/documents/analyze', {
           method: 'POST',
           body: fd,
         })
-        await api(`/api/documents/${doc._id}/analyze`, { method: 'POST', body: '{}' })
       }
       await load()
     } catch (e) {
@@ -95,12 +96,12 @@ export function Uploads() {
           id="upload-input"
           type="file"
           multiple
-          accept="image/*,application/pdf"
+          accept="image/png,image/jpeg,image/webp,application/pdf"
           style={{ display: 'none' }}
           onChange={(e) => handleFiles(e.target.files)}
         />
         <div className="dropzone-title">{busy ? 'Analyzing…' : 'Drag & drop your report here'}</div>
-        <div className="dropzone-sub">or click to browse · JPG, PNG, PDF · max 10MB</div>
+        <div className="dropzone-sub">or click to browse · JPG, PNG, WEBP, PDF · max 5MB</div>
         {error && <div style={{ color: 'var(--danger)', marginTop: 8, fontSize: 13 }}>{error}</div>}
       </div>
 
@@ -166,17 +167,7 @@ export function Uploads() {
                 </div>
               )}
             </div>
-            <div className="item-actions">
-              {/* A plain link can't send the bearer token, so fetch the file. */}
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() =>
-                  openAuthedFile(`/api/documents/${doc._id}/file`).catch(() => {})
-                }
-              >
-                View
-              </button>
-            </div>
+            
           </div>
         ))}
       </div>

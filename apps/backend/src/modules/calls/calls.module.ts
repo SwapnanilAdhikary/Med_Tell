@@ -10,6 +10,10 @@ import { AuthModule } from '../auth/auth.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { PatientsModule } from '../patients/patients.module';
 import { CertificatesModule } from '../certificates/certificates.module';
+import { HealthWorkersModule } from '../health-workers/health-workers.module';
+import { DoctorsModule } from '../doctors/doctors.module';
+import { FacilitiesModule } from '../facilities/facilities.module';
+import { FieldReportsModule } from '../field-reports/field-reports.module';
 
 @Module({
   imports: [
@@ -23,6 +27,11 @@ import { CertificatesModule } from '../certificates/certificates.module';
     ConversationsModule,
     PatientsModule,
     CertificatesModule,
+    HealthWorkersModule,
+    DoctorsModule,
+    FacilitiesModule,
+    // One-way: FieldReports knows nothing about Calls, so no forwardRef.
+    FieldReportsModule,
   ],
   controllers: [CallsController],
   providers: [CallsService],

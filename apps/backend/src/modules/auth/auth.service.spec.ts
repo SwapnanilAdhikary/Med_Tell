@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { JwtService } from '@nestjs/jwt';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
-import { AuthService } from './auth.service';
+import { AuthService, canonicalPhone } from './auth.service';
 import { User } from './schemas/user.schema';
 import { PatientsService } from '../patients/patients.service';
 import { DoctorsService } from '../doctors/doctors.service';
@@ -298,6 +298,34 @@ describe('AuthService', () => {
     });
   });
 
+  describe('canonicalPhone', () => {
+    it('collapses every way an Indian mobile gets typed onto one key', () => {
+      for (const raw of [
+        '9876543211',
+        '09876543211',
+        '919876543211',
+        '+919876543211',
+        '+91 98765 43211',
+        '+91-98765-43211',
+      ]) {
+        expect(canonicalPhone(raw)).toBe('+919876543211');
+      }
+    });
+
+    it('leaves a synthetic local key alone - it is not a number', () => {
+      expect(canonicalPhone('local:worker-1:sita-devi')).toBe(
+        'local:worker-1:sita-devi',
+      );
+    });
+
+    it('leaves anything it cannot recognise alone rather than mangling it', () => {
+      // Not an Indian mobile: wrong leading digit, wrong length, or foreign.
+      expect(canonicalPhone('1234567890')).toBe('1234567890');
+      expect(canonicalPhone('+14155552671')).toBe('+14155552671');
+      expect(canonicalPhone('12345')).toBe('12345');
+    });
+  });
+
   describe('findOrCreatePatientByPhone', () => {
     const shadowUser = {
       _id: 'user-9',
@@ -305,6 +333,23 @@ describe('AuthService', () => {
       name: 'Caller 3210',
       role: 'patient',
     };
+
+    it('finds the patient a worker typed without the +91, instead of duplicating them', async () => {
+      // The bug this guards: a field report typed 9876543211 while the patient
+      // had registered as +919876543211, and a second patient appeared that
+      // nobody could log into - so the doctor's chat went to the wrong copy.
+      findOneSequence({ ...shadowUser, phone: '+919876543211' });
+      patientsService.getOrCreateByUser.mockResolvedValue({ _id: 'patient-9' });
+
+      const result = await service.findOrCreatePatientByPhone('9876543211');
+
+      expect(userModel.create).not.toHaveBeenCalled();
+      expect(result.created).toBe(false);
+      const filter = userModel.findOne.mock.calls[0][0];
+      expect(filter).toEqual({
+        phone: { $in: ['+919876543211', '9876543211'] },
+      });
+    });
 
     it('creates one patient for an unknown number and reuses it on the second call', async () => {
       findOneSequence(null, shadowUser);

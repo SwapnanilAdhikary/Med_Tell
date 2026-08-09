@@ -1,7 +1,7 @@
 export const HOME: Record<string, string> = {
   patient: '/chat',
   doctor: '/doctor',
-  health_worker: '/field',
+  health_worker: '/field/map',
   admin: '/doctor',
 }
 

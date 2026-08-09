@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { CallsService } from './calls.service';
 import { CallSession } from './schemas/call-session.schema';
 import { AiService } from '../ai/ai.service';
@@ -11,6 +11,10 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { PatientsService } from '../patients/patients.service';
 import { CertificatesService } from '../certificates/certificates.service';
 import { AuthService } from '../auth/auth.service';
+import { HealthWorkersService } from '../health-workers/health-workers.service';
+import { DoctorsService } from '../doctors/doctors.service';
+import { FacilitiesService } from '../facilities/facilities.service';
+import { FieldReportsService } from '../field-reports/field-reports.service';
 
 const SUMMARY = {
   summary: 'Caller reports chest pain and breathlessness for two days.',
@@ -24,7 +28,12 @@ const SUMMARY = {
 describe('CallsService', () => {
   let service: CallsService;
 
-  const callModel = { findOneAndUpdate: jest.fn(), find: jest.fn() };
+  const callModel = {
+    findOneAndUpdate: jest.fn(),
+    find: jest.fn(),
+    findOne: jest.fn(),
+  };
+  const configGet = jest.fn((_key: string, dflt?: string) => dflt ?? '');
   const aiService = { summarizeCall: jest.fn() };
   const appointmentsService = { book: jest.fn() };
   const verificationService = { create: jest.fn() };
@@ -39,6 +48,10 @@ describe('CallsService', () => {
     patientIdForUser: jest.fn(),
     findOrCreatePatientByPhone: jest.fn(),
   };
+  const healthWorkersService = { findById: jest.fn() };
+  const doctorsService = { list: jest.fn() };
+  const facilitiesService = { findById: jest.fn() };
+  const fieldReportsService = { ingestFromCall: jest.fn() };
 
   /** A saved CallSession doc as the model would hand it back. */
   function session(overrides: Record<string, unknown> = {}) {
@@ -79,7 +92,7 @@ describe('CallsService', () => {
       providers: [
         CallsService,
         { provide: getModelToken(CallSession.name), useValue: callModel },
-        { provide: ConfigService, useValue: { get: () => '' } },
+        { provide: ConfigService, useValue: { get: configGet } },
         { provide: AiService, useValue: aiService },
         { provide: AppointmentsService, useValue: appointmentsService },
         { provide: VerificationService, useValue: verificationService },
@@ -87,6 +100,10 @@ describe('CallsService', () => {
         { provide: PatientsService, useValue: patientsService },
         { provide: CertificatesService, useValue: certificatesService },
         { provide: AuthService, useValue: authService },
+        { provide: HealthWorkersService, useValue: healthWorkersService },
+        { provide: DoctorsService, useValue: doctorsService },
+        { provide: FacilitiesService, useValue: facilitiesService },
+        { provide: FieldReportsService, useValue: fieldReportsService },
       ],
     }).compile();
 
@@ -110,6 +127,8 @@ describe('CallsService', () => {
       );
       // No phone lookup at all - this is what made web calls inert before.
       expect(authService.findByPhone).not.toHaveBeenCalled();
+      // A patient call must never reach the field classifier.
+      expect(fieldReportsService.ingestFromCall).not.toHaveBeenCalled();
     });
 
     it('builds transcriptText from the turns when the client sends none', async () => {
@@ -199,7 +218,10 @@ describe('CallsService', () => {
         ...SUMMARY,
         requestedCertificate: { type: 'sick-leave', reason: 'two days rest' },
       });
-      certificatesService.request.mockResolvedValue({ _id: 'cert-1', type: 'sick-leave' });
+      certificatesService.request.mockResolvedValue({
+        _id: 'cert-1',
+        type: 'sick-leave',
+      });
       upsertReturns(session({ patient: 'patient-1' }));
 
       const outcome = await service.completeWebCall('patient-1', {
@@ -252,6 +274,133 @@ describe('CallsService', () => {
       expect(outcome).toEqual(
         expect.objectContaining({ alreadyProcessed: true }),
       );
+    });
+  });
+
+  describe('the field call path', () => {
+    const WORKER = {
+      _id: 'worker-1',
+      name: 'Anjali Roy',
+      cadre: 'ASHA',
+      village: 'Beldanga',
+      languages: ['bn', 'hi'],
+    };
+
+    beforeEach(() => {
+      healthWorkersService.findById.mockResolvedValue({ ...WORKER });
+      doctorsService.list.mockResolvedValue([]);
+      fieldReportsService.ingestFromCall.mockResolvedValue({
+        kind: 'report',
+        report: {
+          _id: 'report-1',
+          matchedDoctor: { name: 'Kavita Ghosh', specialty: 'Obstetrics' },
+          subjectReachable: true,
+        },
+        transcript: 'user: Sita Devi has a fever',
+      });
+    });
+
+    it('uses the ASHA assistant, not the patient one', async () => {
+      const session = await service.getFieldWebSession('worker-1');
+      // ConfigService in this spec returns '' for everything, so assert the key.
+      expect(configGet).toHaveBeenCalledWith('VAPI_ASHA_ASSISTANT_ID', '');
+      expect(configGet).not.toHaveBeenCalledWith('VAPI_ASSISTANT_ID', '');
+      expect(session.variableValues).toEqual(
+        expect.objectContaining({
+          workerName: 'Anjali Roy',
+          cadre: 'ASHA',
+          village: 'Beldanga',
+        }),
+      );
+    });
+
+    it('greets in the worker language and never asks for their symptoms', async () => {
+      const session = await service.getFieldWebSession('worker-1');
+      expect(session.language).toBe('bn');
+      expect(session.firstMessage).toContain('Anjali');
+    });
+
+    it('refuses a token with no worker id', async () => {
+      await expect(service.getFieldWebSession(undefined)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('sends the transcript to the field classifier, never to book()', async () => {
+      upsertReturns(session({ kind: 'field' }));
+      callModel.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      const out = await service.completeFieldWebCall(
+        { workerId: 'worker-1', phone: '+919700000001' },
+        {
+          vapiCallId: 'vapi-f1',
+          transcript: [{ role: 'user', content: 'Sita Devi has a fever' }],
+          geo: { lat: 23.93, lng: 88.25, picked: true },
+        },
+      );
+
+      expect(fieldReportsService.ingestFromCall).toHaveBeenCalledWith(
+        'worker-1',
+        expect.objectContaining({
+          geo: { lat: 23.93, lng: 88.25, picked: true },
+          workerPhone: '+919700000001',
+        }),
+      );
+      expect(appointmentsService.book).not.toHaveBeenCalled();
+      expect(out).toEqual(
+        expect.objectContaining({ kind: 'report', reportId: 'report-1' }),
+      );
+    });
+
+    it('stores the session as a field call with a worker and no patient', async () => {
+      upsertReturns(session({ kind: 'field' }));
+      callModel.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      await service.completeFieldWebCall(
+        { workerId: 'worker-1' },
+        { vapiCallId: 'vapi-f1', transcriptText: 'a case' },
+      );
+
+      const [filter, update] = callModel.findOneAndUpdate.mock.calls[0];
+      // Keyed on kind so a patient can never claim a field call, or the reverse.
+      expect(filter).toEqual({ vapiCallId: 'vapi-f1', kind: 'field' });
+      expect(update).toEqual(
+        expect.objectContaining({ kind: 'field', healthWorker: 'worker-1' }),
+      );
+      expect(update.patient).toBeUndefined();
+    });
+
+    it('refuses to let one worker claim another worker call', async () => {
+      callModel.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue({ healthWorker: 'worker-9' }),
+      });
+
+      await expect(
+        service.completeFieldWebCall(
+          { workerId: 'worker-1' },
+          { vapiCallId: 'vapi-f1', transcriptText: 'a case' },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(fieldReportsService.ingestFromCall).not.toHaveBeenCalled();
+    });
+
+    it('reports nothing-heard instead of filing an empty case', async () => {
+      upsertReturns(session({ kind: 'field' }));
+      callModel.findOne.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
+
+      const out = await service.completeFieldWebCall(
+        { workerId: 'worker-1' },
+        { vapiCallId: 'vapi-f1', transcriptText: '   ' },
+      );
+
+      expect(out).toEqual({ kind: 'none', reason: 'nothing-heard' });
+      expect(fieldReportsService.ingestFromCall).not.toHaveBeenCalled();
     });
   });
 

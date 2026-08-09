@@ -19,6 +19,17 @@ export class CallSession {
   @Prop({ trim: true })
   assistantId?: string;
 
+  @Prop({ type: Types.ObjectId, ref: 'HealthWorker', index: true })
+  healthWorker?: Types.ObjectId;
+
+  /**
+   * Which flow owns this session. Set at creation and used to refuse a
+   * cross-flow claim: without it a patient could POST a field call's id and
+   * have an ASHA's transcript about a third party run through patient triage.
+   */
+  @Prop({ type: String, enum: ['patient', 'field'], default: 'patient' })
+  kind!: 'patient' | 'field';
+
   @Prop({ trim: true })
   source?: 'phone' | 'web';
 

@@ -11,8 +11,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
 import * as crypto from 'node:crypto';
 import * as mongoose from 'mongoose';
-import * as path from 'node:path';
-import * as fs from 'node:fs';
 import 'dotenv/config';
 
 const SCRYPT_KEYLEN = 64;
@@ -129,14 +127,34 @@ const PLACEHOLDER_PNG = Buffer.from(
 );
 
 const DOCTORS = [
-  { phone: '+919800000001', title: 'MBBS, MD', specialty: 'General Medicine' },
-  { phone: '+919800000002', title: 'MBBS, DM', specialty: 'Cardiology' },
-  { phone: '+919800000003', title: 'MBBS, MD', specialty: 'Pediatrics' },
+  {
+    phone: '+919800000001',
+    title: 'MBBS, MD',
+    specialty: 'General Medicine',
+    registrationNumber: 'WBMC-2019-0001',
+    languages: ['en', 'hi'],
+  },
+  {
+    phone: '+919800000002',
+    title: 'MBBS, DM',
+    specialty: 'Cardiology',
+    registrationNumber: 'WBMC-2018-0042',
+    languages: ['en', 'hi'],
+  },
+  {
+    phone: '+919800000003',
+    title: 'MBBS, MD',
+    specialty: 'Pediatrics',
+    registrationNumber: 'WBMC-2020-0113',
+    languages: ['en', 'bn'],
+  },
   // Without her the pregnancy path degrades silently to General Medicine.
   {
     phone: '+919800000004',
     title: 'MBBS, MS',
     specialty: 'Obstetrics & Gynaecology',
+    registrationNumber: 'WBMC-2017-0077',
+    languages: ['en', 'bn'],
   },
 ];
 
@@ -226,6 +244,79 @@ const CERTIFICATES = [
   },
 ];
 
+const PRESCRIPTIONS = [
+  {
+    patient: '+919876543210',
+    consultMode: 'teleconsult',
+    draftItems: [
+      {
+        name: 'Paracetamol',
+        dose: '500 mg',
+        frequency: '1 tab 3x daily',
+        durationDays: 5,
+        instructions: 'after food',
+        tpgList: 'A',
+      },
+      {
+        name: 'Oral Rehydration Salts (ORS)',
+        dose: '1 sachet',
+        frequency: 'after each loose motion',
+        durationDays: 5,
+        instructions: 'dissolve in 1 L clean water',
+        tpgList: 'A',
+      },
+    ],
+    flags: [
+      {
+        severity: 'warn',
+        role: 'safety',
+        itemName: null,
+        message:
+          'Pregnancy status is unrecorded in a woman of reproductive age - confirm before dispensing.',
+      },
+      {
+        severity: 'info',
+        role: 'formulary',
+        itemName: 'Paracetamol',
+        message: 'Classified as List A for a teleconsult.',
+      },
+    ],
+    aiOutput: {
+      type: 'prescription',
+      consultMode: 'teleconsult',
+      subject: { name: 'Priya Sharma', gender: 'female' },
+      symptoms: ['fever', 'loose motions'],
+      vitals: { temperatureC: 38.5 },
+      urgency: 'semi-urgent',
+      reportedBy: { workerName: 'Anjali Roy', cadre: 'ASHA', village: 'Beldanga' },
+      draftItems: [
+        {
+          name: 'Paracetamol',
+          dose: '500 mg',
+          frequency: '1 tab 3x daily',
+          durationDays: 5,
+          instructions: 'after food',
+        },
+        {
+          name: 'Oral Rehydration Salts (ORS)',
+          dose: '1 sachet',
+          frequency: 'after each loose motion',
+          durationDays: 5,
+          instructions: 'dissolve in 1 L clean water',
+        },
+      ],
+      flags: [
+        {
+          severity: 'warn',
+          role: 'safety',
+          message:
+            'Pregnancy status is unrecorded in a woman of reproductive age - confirm before dispensing.',
+        },
+      ],
+    },
+  },
+];
+
 async function ensureUser(
   phone: string,
   name: string,
@@ -277,6 +368,8 @@ async function main() {
       name: String,
       title: String,
       specialty: String,
+      registrationNumber: String,
+      languages: [String],
       facility: mongoose.Schema.Types.ObjectId,
       verified: Boolean,
     }),
@@ -342,7 +435,6 @@ async function main() {
       mimeType: String,
       size: Number,
       docType: String,
-      filePath: String,
       status: String,
       aiFindings: mongoose.Schema.Types.Mixed,
     }),
@@ -361,6 +453,26 @@ async function main() {
       validTo: Date,
     }),
     'certificates',
+  );
+  const prescriptionModel = mongoose.model(
+    'Prescription',
+    new mongoose.Schema({
+      patient: mongoose.Schema.Types.ObjectId,
+      fieldReport: mongoose.Schema.Types.ObjectId,
+      doctor: mongoose.Schema.Types.ObjectId,
+      consultMode: String,
+      prescriberRegNo: String,
+      draftItems: mongoose.Schema.Types.Mixed,
+      items: mongoose.Schema.Types.Mixed,
+      flags: mongoose.Schema.Types.Mixed,
+      failedRoles: [String],
+      status: String,
+      pdfPath: String,
+      signedBy: String,
+      issuedAt: Date,
+      rejectReason: String,
+    }),
+    'prescriptions',
   );
   const verificationModel = mongoose.model(
     'VerificationTask',
@@ -451,6 +563,8 @@ async function main() {
           name: u.name,
           title: d.title,
           specialty: d.specialty,
+          registrationNumber: d.registrationNumber,
+          languages: d.languages,
           facility: facilityIds.get(DOCTOR_FACILITY[u.phone] ?? ''),
           verified: true,
         });
@@ -479,6 +593,17 @@ async function main() {
     }
   }
 
+  // Same self-heal for the registration number and languages: a re-run must
+  // backfill an existing DB where the findOne guard skipped creation.
+  for (const d of DOCTORS) {
+    const doctorId = doctorIds.get(d.phone);
+    if (!doctorId) continue;
+    await doctorModel.updateOne(
+      { _id: doctorId, registrationNumber: { $ne: d.registrationNumber } },
+      { $set: { registrationNumber: d.registrationNumber, languages: d.languages } },
+    );
+  }
+
   // 3. Call-back appointments
   for (const a of APPOINTMENTS) {
     const pid = patientIds.get(a.patient)!;
@@ -498,25 +623,17 @@ async function main() {
   }
 
   // 3. Documents + verification tasks
-  const uploadDir = path.resolve('uploads');
-  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
   for (const d of DOCUMENTS) {
     const pid = patientIds.get(d.patient)!;
     const exists = await documentModel.findOne({ filename: d.filename }).exec();
     if (!exists) {
-      // Write a real (placeholder) file so GET /documents/:id/file works in the
-      // demo instead of throwing ENOENT.
-      const filePath = path.join('uploads', d.filename);
-      fs.writeFileSync(path.resolve(filePath), PLACEHOLDER_PNG);
-
       const doc = await documentModel.create({
         patient: pid,
         filename: d.filename,
         mimeType: 'image/png',
-        size: PLACEHOLDER_PNG.length,
+        size: 0,
         docType: d.docType,
-        filePath,
         status: 'awaiting-doctor',
         aiFindings: d.aiFindings,
       });
@@ -555,6 +672,31 @@ async function main() {
         status: 'pending',
       });
       console.log(`  + certificate (${c.type})`);
+    }
+  }
+
+  // 4b. Prescriptions + verification tasks
+  for (const p of PRESCRIPTIONS) {
+    const pid = patientIds.get(p.patient)!;
+    const exists = await prescriptionModel
+      .findOne({ patient: pid, status: 'awaiting-doctor' })
+      .exec();
+    if (!exists) {
+      const rx = await prescriptionModel.create({
+        patient: pid,
+        consultMode: p.consultMode,
+        draftItems: p.draftItems,
+        flags: p.flags,
+        status: 'awaiting-doctor',
+      });
+      await verificationModel.create({
+        taskType: 'prescription',
+        refId: rx._id,
+        patient: pid,
+        aiOutput: p.aiOutput,
+        status: 'pending',
+      });
+      console.log(`  + prescription (${p.patient})`);
     }
   }
 

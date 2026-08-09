@@ -3,6 +3,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -13,8 +14,10 @@ import {
 } from './schemas/verification-task.schema';
 import { DocumentsService } from '../documents/documents.service';
 import { CertificatesService } from '../certificates/certificates.service';
+import { PrescriptionsService } from '../prescriptions/prescriptions.service';
 import { PatientsService } from '../patients/patients.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ConversationsService } from '../conversations/conversations.service';
 import { idFilter } from '../../common/mongoose.util';
 
 @Injectable()
@@ -26,9 +29,14 @@ export class VerificationService {
     private readonly documentsService: DocumentsService,
     @Inject(forwardRef(() => CertificatesService))
     private readonly certificatesService: CertificatesService,
+    @Inject(forwardRef(() => PrescriptionsService))
+    private readonly prescriptionsService: PrescriptionsService,
     private readonly patientsService: PatientsService,
     private readonly notificationsService: NotificationsService,
+    private readonly conversationsService: ConversationsService,
   ) {}
+
+  private readonly logger = new Logger(VerificationService.name);
 
   async create(input: {
     taskType: VerificationTaskType;
@@ -68,6 +76,30 @@ export class VerificationService {
     doctorId: string | Types.ObjectId,
     comment?: string,
   ) {
+    return this.acceptTask(taskId, doctorId, comment);
+  }
+
+  /**
+   * The doctor changed the AI draft before signing it. `doctorEdit` is set
+   * BEFORE applyDecision so the edit is what gets signed, and applyDecision
+   * runs BEFORE status so a rejected sign-off (no registration number, PDF
+   * failure) leaves the task pending and re-decidable.
+   */
+  async approveWithEdit(
+    taskId: string,
+    doctorId: string | Types.ObjectId,
+    edit: Record<string, unknown>,
+    comment?: string,
+  ) {
+    return this.acceptTask(taskId, doctorId, comment, edit);
+  }
+
+  private async acceptTask(
+    taskId: string,
+    doctorId: string | Types.ObjectId,
+    comment?: string,
+    edit?: Record<string, unknown>,
+  ) {
     const task = await this.taskModel.findById(taskId).exec();
     if (!task) throw new NotFoundException('Task not found');
     if (task.status !== 'pending') return this.decidedError(task.status);
@@ -75,9 +107,10 @@ export class VerificationService {
     task.doctor = doctorId as Types.ObjectId;
     task.doctorComment = comment;
     task.reviewedAt = new Date();
+    if (edit) task.doctorEdit = edit;
 
     await this.applyDecision(task);
-    task.status = 'approved';
+    task.status = edit ? 'edited' : 'approved';
     await task.save();
     return task;
   }
@@ -99,6 +132,18 @@ export class VerificationService {
       await this.documentsService.reject(task.refId, doctorId, comment);
     } else if (task.taskType === 'certificate') {
       await this.certificatesService.reject(task.refId, doctorId, comment);
+    } else if (task.taskType === 'prescription') {
+      // Mirrors applyDecision's branch. Deliberately NOT unified with it:
+      // applyDecision's else notifies the patient and this switch must not.
+      await this.prescriptionsService.reject(task.refId, doctorId, comment);
+      // A rejected prescription is the one case where the patient needs a
+      // person, not a draft. Opening the handoff also stops the assistant
+      // answering clinical questions the doctor just declined to answer.
+      await this.conversationsService
+        .setHandoff(task.patient, doctorId)
+        .catch((err: Error) =>
+          this.logger.warn(`Could not open the chat handoff: ${err.message}`),
+        );
     }
     task.status = 'rejected';
     await task.save();
@@ -124,6 +169,14 @@ export class VerificationService {
       );
     } else if (task.taskType === 'certificate') {
       await this.certificatesService.issue(task.refId, task.doctor!);
+    } else if (task.taskType === 'prescription') {
+      // doctorEdit is undefined on a plain approve, and issue() falls back to
+      // draftItems. Both approval paths, one branch.
+      await this.prescriptionsService.issue(
+        task.refId,
+        task.doctor!,
+        task.doctorEdit,
+      );
     } else {
       // call-note and appointment tasks have nothing to mutate, but the patient
       // should still learn a doctor read their case.

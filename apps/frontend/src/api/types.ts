@@ -105,7 +105,7 @@ export interface Certificate {
 
 export interface VerificationTask {
   _id: string
-  taskType: 'document' | 'certificate' | 'call-note' | 'appointment'
+  taskType: 'document' | 'certificate' | 'prescription' | 'call-note' | 'appointment'
   refId: string
   patient: { _id: string; name: string } | string
   aiOutput?: Record<string, unknown>
@@ -147,7 +147,15 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   attachments?: unknown[]
-  metadata?: { actions?: ChatAction[]; source?: string }
+  metadata?: {
+    actions?: ChatAction[]
+    source?: string
+    /** Written by a doctor, stored as `assistant` so the model sees it too. */
+    author?: 'doctor'
+    doctorName?: string
+    /** The fixed line sent while a doctor holds the thread. */
+    handoff?: boolean
+  }
   createdAt: string
 }
 
@@ -174,6 +182,25 @@ export interface Facility {
   village?: string
   district?: string
   phone?: string
+  location?: { type: 'Point'; coordinates: number[] }
+}
+
+/** Community-mapped from OpenStreetMap - unverified, often without a phone. */
+export interface PublicFacility {
+  osmId: string
+  name: string
+  kind: 'hospital' | 'clinic' | 'doctors' | 'pharmacy'
+  lat: number
+  lng: number
+  phone?: string
+  source: 'osm'
+}
+
+export interface PublicFacilityResult {
+  facilities: PublicFacility[]
+  /** 'unavailable' means OpenStreetMap did not answer, not that none exist. */
+  status: 'ok' | 'unavailable'
+  radiusM: number
 }
 
 export interface FieldReportVitals {
@@ -213,7 +240,7 @@ export interface FieldReport {
   location: {
     /** GeoJSON order: [lng, lat]. */
     point?: { type: 'Point'; coordinates: number[] }
-    source: 'gps' | 'assigned' | 'spoken'
+    source: 'gps' | 'picked' | 'assigned' | 'spoken'
     accuracyM?: number
     village?: string
     block?: string
@@ -222,10 +249,40 @@ export interface FieldReport {
   facility?: Facility | string
   appointment?: string
   matchedDoctor?: { name: string; specialty: string; title?: string }
+  prescription?: SignedPrescription | string
   status: 'extracting' | 'submitted' | 'routed' | 'failed'
   aiError?: string
   routingError?: string
   createdAt: string
+}
+
+export interface PrescriptionItem {
+  name: string
+  dose?: string
+  frequency?: string
+  durationDays?: number
+  instructions?: string
+}
+
+/** What the worker is shown: the signed items only, never the AI's draft. */
+export interface SignedPrescription {
+  _id: string
+  status: 'awaiting-doctor' | 'issued' | 'rejected'
+  items?: PrescriptionItem[]
+  signedBy?: string
+  issuedAt?: string
+  consultMode?: string
+}
+
+export interface FieldNote {
+  _id: string
+  title: string
+  body: string
+  point?: { type: 'Point'; coordinates: number[] }
+  village?: string
+  pinned: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface AppNotification {

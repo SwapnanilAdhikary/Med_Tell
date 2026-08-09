@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Facility, FacilityDocument } from './schemas/facility.schema';
+import { fetchPublicFacilities, type PublicFacilityResult } from './overpass';
 
 const DEFAULT_RADIUS_M = 25_000;
 
@@ -95,6 +96,22 @@ export class FacilitiesService {
     }
 
     return null;
+  }
+
+  /**
+   * OpenStreetMap facilities around a point, for the worker's map. Kept separate
+   * from `list()`: this is community data with no phone numbers and no verified
+   * ownership, so it is never allowed to become the routing target.
+   */
+  async listPublicNearby(
+    lat: number,
+    lng: number,
+    radiusM = 15_000,
+  ): Promise<PublicFacilityResult> {
+    if (!isLngLat([lng, lat])) {
+      return { facilities: [], status: 'unavailable', radiusM };
+    }
+    return fetchPublicFacilities(lat, lng, radiusM);
   }
 
   async create(data: Partial<Facility>): Promise<FacilityDocument> {
