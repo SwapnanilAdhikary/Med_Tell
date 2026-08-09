@@ -8,6 +8,12 @@ import {
 import { Message, AttachmentRef } from './schemas/message.schema';
 import { idFilter } from '../../common/mongoose.util';
 
+function doctorNameOf(metadata?: Record<string, unknown>): string | null {
+  if (metadata?.author !== 'doctor') return null;
+  const name = metadata.doctorName;
+  return typeof name === 'string' && name ? name : null;
+}
+
 @Injectable()
 export class ConversationsService {
   constructor(
@@ -75,8 +81,34 @@ export class ConversationsService {
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({
         role: m.role as 'user' | 'assistant',
-        content: m.content,
+        // A doctor's message is stored as `assistant` so it reaches the model as
+        // prior context and renders in the existing UI. Without this prefix the
+        // model cannot tell its own words from the doctor's - closed in content,
+        // not in the role enum, which OpenAI has no 'doctor' value for.
+        content: doctorNameOf(m.metadata)
+          ? `[Dr. ${doctorNameOf(m.metadata)}]: ${m.content}`
+          : m.content,
       }));
+  }
+
+  /** Set by a doctor taking over; cleared on release. */
+  async setHandoff(
+    patientId: string | Types.ObjectId,
+    doctorId?: string | Types.ObjectId,
+  ) {
+    // getOrCreate first, then update by _id. An upsert on idFilter's `$in`
+    // filter cannot derive `patient` from the query, so it silently inserted a
+    // conversation belonging to nobody.
+    const conversation = await this.getOrCreate(patientId);
+    return this.conversationModel
+      .findByIdAndUpdate(
+        conversation._id,
+        doctorId
+          ? { handoffAt: new Date(), handoffDoctor: doctorId }
+          : { $unset: { handoffAt: '', handoffDoctor: '' } },
+        { new: true },
+      )
+      .exec();
   }
 
   async listMessages(conversationId: string | Types.ObjectId) {

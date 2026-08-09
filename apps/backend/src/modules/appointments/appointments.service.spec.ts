@@ -183,8 +183,67 @@ describe('AppointmentsService.book', () => {
     it('tells the patient to visit, not to expect a call', async () => {
       await service.book(fieldInput);
       expect(patientNote().body).toBe(
-        'Please visit PHC Beldanga as soon as you can. Show this message when you arrive.',
+        'Please visit PHC Beldanga today. Show this message when you arrive.',
       );
+    });
+
+    it('turns the urgency into a timeframe the patient can act on', async () => {
+      await service.book({ ...fieldInput, urgency: 'emergency' });
+      expect(patientNote().body).toContain('right now');
+    });
+
+    it('includes the facility phone when there is one', async () => {
+      await service.book({ ...fieldInput, facilityPhone: '03482-255100' });
+      expect(patientNote().body).toContain('phone 03482-255100');
+    });
+
+    it('books a referral as assigned, since there is no doctor left to claim it', async () => {
+      await service.book(fieldInput);
+      expect(createdWith().status).toBe('assigned');
+      expect(createdWith().aiNotes).toEqual(
+        expect.objectContaining({
+          referredFrom: 'Anjali Roy',
+          facility: 'PHC Beldanga',
+          timeframe: 'today',
+        }),
+      );
+    });
+
+    it('tells the worker as well as the patient - they walk the patient there', async () => {
+      await service.book({ ...fieldInput, workerUser: 'worker-user-1' });
+
+      const toWorker = notificationsService.create.mock.calls
+        .map((c) => c[0])
+        .find((n) => n.user === 'worker-user-1');
+      expect(toWorker.title).toContain('PHC Beldanga');
+      expect(toWorker.body).toContain('today');
+      // And the patient still got their own copy.
+      expect(patientNote()).toBeDefined();
+    });
+
+    it('does not send the worker two copies when they are already the recipient', async () => {
+      await service.book({
+        ...fieldInput,
+        workerUser: 'worker-user-1',
+        notifyUser: 'worker-user-1',
+      });
+
+      const toWorker = notificationsService.create.mock.calls
+        .map((c) => c[0])
+        .filter((n) => n.user === 'worker-user-1');
+      expect(toWorker).toHaveLength(1);
+    });
+
+    it('sends no referral message to a worker on an ordinary call-back', async () => {
+      await service.book({
+        patientId: 'patient-1',
+        workerUser: 'worker-user-1',
+      });
+
+      const toWorker = notificationsService.create.mock.calls
+        .map((c) => c[0])
+        .filter((n) => n.user === 'worker-user-1');
+      expect(toWorker).toHaveLength(0);
     });
 
     it('does not name the matched doctor at the nearest facility', async () => {

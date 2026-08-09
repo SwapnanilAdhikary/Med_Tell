@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { useAuth } from '../../store/auth'
@@ -7,6 +8,15 @@ import { refName } from '../../names'
 function idOf(ref: Appointment['doctor']): string | undefined {
   if (!ref) return undefined
   return typeof ref === 'string' ? ref : ref._id
+}
+
+/**
+ * The patient id whether or not populate resolved. A field-report appointment
+ * stores `patient` as a string, so populate silently leaves it as the bare id -
+ * checking for an object dropped the chat link exactly where it was needed.
+ */
+function patientIdOf(a: Appointment): string {
+  return typeof a.patient === 'object' && a.patient ? a.patient._id : String(a.patient ?? '')
 }
 
 export function CallBacks() {
@@ -134,6 +144,11 @@ export function CallBacks() {
                 <button className="btn btn-success btn-sm" disabled={busyId === a._id} onClick={() => complete(a._id)}>
                   Complete
                 </button>
+              )}
+              {patientIdOf(a) && (
+                <Link className="btn btn-secondary btn-sm" to={`/doctor/chat/${patientIdOf(a)}`}>
+                  Open chat
+                </Link>
               )}
             </div>
           </div>

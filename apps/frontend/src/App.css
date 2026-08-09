@@ -2125,3 +2125,63 @@
   color: var(--text-2);
   font-size: 12px;
 }
+
+/* ===== doctor: patient conversation ===== */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.thread-msg {
+  max-width: 78%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.thread-patient {
+  align-self: flex-start;
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.thread-ai {
+  align-self: flex-end;
+  background: var(--primary-soft);
+  color: var(--text-1);
+}
+
+.thread-who {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 3px;
+}
+
+.thread-compose {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-top: 14px;
+}
+
+.thread-compose .note-area {
+  flex: 1;
+}
+
+.msg-doctor {
+  border-left: 3px solid var(--primary);
+}
+
+.msg-author {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 3px;
+}

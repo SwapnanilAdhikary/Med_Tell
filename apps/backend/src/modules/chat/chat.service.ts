@@ -7,6 +7,7 @@ import { CertificatesService } from '../certificates/certificates.service';
 import { DocumentsService } from '../documents/documents.service';
 import { DoctorsService } from '../doctors/doctors.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuthService } from '../auth/auth.service';
 import type { CertificateType } from '../certificates/schemas/certificate.schema';
 
 /**
@@ -19,6 +20,13 @@ function doctorLabelOf(doctor: unknown): string | null {
   return `Dr. ${d.name}${d.specialty ? ` (${d.specialty})` : ''}`;
 }
 
+/** Fixed, translated, and never model-generated: the AI is off duty here. */
+const HANDOFF_REPLY: Record<string, string> = {
+  en: 'A doctor is reviewing this conversation and will reply here themselves. Your message has been passed to them.',
+  hi: 'एक डॉक्टर इस बातचीत को देख रहे हैं और यहीं आपको खुद जवाब देंगे। आपका संदेश उन्हें भेज दिया गया है।',
+  bn: 'একজন ডাক্তার এই কথাবার্তা দেখছেন এবং এখানেই নিজে উত্তর দেবেন। আপনার বার্তা তাঁকে পাঠানো হয়েছে।',
+};
+
 @Injectable()
 export class ChatService {
   constructor(
@@ -30,6 +38,7 @@ export class ChatService {
     private readonly documentsService: DocumentsService,
     private readonly doctorsService: DoctorsService,
     private readonly notificationsService: NotificationsService,
+    private readonly authService: AuthService,
   ) {}
 
   async sendMessage(patientId: string, userText: string) {
@@ -41,6 +50,29 @@ export class ChatService {
       'user',
       userText,
     );
+
+    // A doctor is on this thread, so the agent stays out of it: store the
+    // message, tell the doctor, and answer with a fixed line. Running the agent
+    // here would have it contradicting a live clinician.
+    if (conversation.handoffAt) {
+      const language = conversation.language ?? patient.language ?? 'en';
+      const reply = HANDOFF_REPLY[language] ?? HANDOFF_REPLY.en;
+      await this.notifyHandoffDoctor(conversation, patient.name, userText);
+      await this.conversationsService.addMessage(
+        conversation._id,
+        'assistant',
+        reply,
+        [],
+        { handoff: true },
+      );
+      return {
+        reply,
+        actions: [],
+        conversationId: conversation._id.toString(),
+        handoff: true,
+      };
+    }
+
     const history = await this.conversationsService.history(conversation._id);
 
     const context: PatientContext = {
@@ -158,16 +190,117 @@ Acknowledge the report, explain the findings in plain language, and remind them 
     };
   }
 
+  /**
+   * A doctor writes into the patient's thread. Stored as `assistant` with
+   * `metadata.author` rather than a new 'doctor' role: history() filters to
+   * user/assistant, so a 'doctor' role would be silently dropped and the model
+   * left blind to the doctor's own words.
+   */
+  async doctorMessage(doctorId: string, patientId: string, text: string) {
+    const doctor = await this.doctorsService.findById(doctorId);
+    const patient = await this.patientsService.findById(patientId);
+    const conversation = await this.conversationsService.getOrCreate(patientId);
+
+    const message = await this.conversationsService.addMessage(
+      conversation._id,
+      'assistant',
+      text,
+      [],
+      { author: 'doctor', doctorId, doctorName: doctor.name },
+    );
+
+    await this.notificationsService.create({
+      user: patient.user,
+      title: `Dr. ${doctor.name} replied`,
+      body: text.slice(0, 200),
+      type: 'chat',
+      ref: { conversationId: conversation._id.toString() },
+    });
+
+    return { message, conversationId: conversation._id.toString() };
+  }
+
+  /** Take the thread over, or hand it back to the assistant. */
+  async setHandoff(
+    doctorId: string | undefined,
+    patientId: string,
+    on: boolean,
+  ) {
+    const patient = await this.patientsService.findById(patientId);
+    const conversation = await this.conversationsService.setHandoff(
+      patientId,
+      on ? doctorId : undefined,
+    );
+
+    const doctorName = doctorId
+      ? (await this.doctorsService.findById(doctorId)).name
+      : '';
+    await this.notificationsService.create({
+      user: patient.user,
+      title: on
+        ? 'A doctor has joined your chat'
+        : 'A doctor has left your chat',
+      body: on
+        ? `Dr. ${doctorName} is reading this conversation and will answer you directly. The assistant will not reply until they are done.`
+        : 'Your chat is back with the MedAssist assistant. A doctor has finished reviewing it.',
+      type: 'chat',
+      ref: { patientId },
+    });
+
+    return {
+      handoffAt: conversation?.handoffAt ?? null,
+      handoffDoctor: conversation?.handoffDoctor ?? null,
+    };
+  }
+
+  private async notifyHandoffDoctor(
+    conversation: { handoffDoctor?: unknown; _id: unknown },
+    patientName: string,
+    text: string,
+  ) {
+    if (!conversation.handoffDoctor) return;
+    const doctor = await this.doctorsService
+      .findById(String(conversation.handoffDoctor))
+      .catch(() => null);
+    if (!doctor) return;
+    await this.notificationsService.create({
+      user: doctor.user,
+      title: `${patientName} replied in your chat`,
+      body: text.slice(0, 200),
+      type: 'chat',
+      ref: { conversationId: String(conversation._id) },
+    });
+  }
+
   async getMessages(patientId: string) {
     const conversation = await this.conversationsService.getOrCreate(patientId);
     const messages = await this.conversationsService.listMessages(
       conversation._id,
     );
+    const patient = await this.patientsService.findById(patientId);
+    const login = await this.patientLogin(patient.user);
     return {
       conversationId: conversation._id.toString(),
       language: conversation.language,
+      // Named, so a doctor can never write into the wrong person's thread
+      // without seeing it. Two patients can share a first name, and a
+      // mistyped phone silently creates a second record.
+      patient: {
+        _id: String(patient._id),
+        name: patient.name,
+        login,
+        // A worker-reported villager with no phone has no login, so nothing
+        // written here will ever be read.
+        reachable: !!login && !login.startsWith('local:'),
+      },
+      handoffAt: conversation.handoffAt ?? null,
       messages,
     };
+  }
+
+  private async patientLogin(userId: unknown): Promise<string> {
+    const user = await this.authService.findUserById(String(userId));
+    return user?.phone ?? '';
   }
 
   async setLanguage(patientId: string, language: string) {

@@ -6,6 +6,7 @@ import { VerificationTask } from './schemas/verification-task.schema';
 import { DocumentsService } from '../documents/documents.service';
 import { CertificatesService } from '../certificates/certificates.service';
 import { PrescriptionsService } from '../prescriptions/prescriptions.service';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PatientsService } from '../patients/patients.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -45,6 +46,9 @@ describe('VerificationService', () => {
     issue: jest.fn(),
     reject: jest.fn(),
   };
+  const conversationsService = {
+    setHandoff: jest.fn().mockResolvedValue({}),
+  };
   const patientsService = {
     findById: jest.fn().mockResolvedValue({ user: 'user-1' }),
   };
@@ -70,6 +74,7 @@ describe('VerificationService', () => {
         { provide: PrescriptionsService, useValue: prescriptionsService },
         { provide: PatientsService, useValue: patientsService },
         { provide: NotificationsService, useValue: notificationsService },
+        { provide: ConversationsService, useValue: conversationsService },
       ],
     }).compile();
 
@@ -234,7 +239,26 @@ describe('VerificationService', () => {
         'doctor-1',
         'wrong drug',
       );
+      // A declined prescription is where the patient needs a person.
+      expect(conversationsService.setHandoff).toHaveBeenCalledWith(
+        'patient-1',
+        'doctor-1',
+      );
       expect(task.status).toBe('rejected');
+    });
+
+    it('still rejects when opening the handoff fails', async () => {
+      const task = makeTask({ taskType: 'prescription', refId: 'rx-1' });
+      findByIdReturns(task);
+      conversationsService.setHandoff.mockRejectedValue(
+        new Error('mongo down'),
+      );
+
+      await service.reject('task-1', 'doctor-1', 'wrong drug');
+
+      // The rejection is the medically important half; chat is a convenience.
+      expect(task.status).toBe('rejected');
+      expect(task.save).toHaveBeenCalled();
     });
   });
 
@@ -253,6 +277,15 @@ describe('VerificationService', () => {
       );
       expect(result.status).toBe('rejected');
       expect(task.save).toHaveBeenCalled();
+    });
+
+    it('does not open a chat handoff when rejecting a certificate', async () => {
+      const task = makeTask({ taskType: 'certificate', refId: 'cert-1' });
+      findByIdReturns(task);
+
+      await service.reject('task-1', 'doctor-1', 'wrong dates');
+
+      expect(conversationsService.setHandoff).not.toHaveBeenCalled();
     });
 
     it('rejects a certificate', async () => {

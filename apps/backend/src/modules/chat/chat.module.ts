@@ -5,6 +5,7 @@ import { ChatService } from './chat.service';
 import { ChatController } from './chat.controller';
 import { AiModule } from '../ai/ai.module';
 import { ConversationsModule } from '../conversations/conversations.module';
+import { AuthModule } from '../auth/auth.module';
 import { PatientsModule } from '../patients/patients.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { CertificatesModule } from '../certificates/certificates.module';
@@ -43,6 +44,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     }),
     AiModule,
     ConversationsModule,
+    AuthModule,
     PatientsModule,
     AppointmentsModule,
     CertificatesModule,

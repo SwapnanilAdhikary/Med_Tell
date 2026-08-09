@@ -217,6 +217,7 @@ export class FieldReportsService {
       facility?.name,
       facility?._id,
       opts.workerPhone,
+      facility?.phone,
     );
     return report;
   }
@@ -373,6 +374,7 @@ export class FieldReportsService {
     facilityName?: string,
     facilityId?: Types.ObjectId,
     workerPhone?: string,
+    facilityPhone?: string,
   ) {
     try {
       const escalated = isInPerson(e.urgency, facilityId);
@@ -402,6 +404,10 @@ export class FieldReportsService {
         ...(report.subjectReachable
           ? {}
           : { notifyUser: worker.user, bestContactNumber: workerPhone }),
+        // Told as well as the patient on a referral, never instead - book()
+        // skips the second message when they are already the notifyUser.
+        workerUser: worker.user,
+        facilityPhone,
       });
       report.appointment = appointment._id;
       if (doctor) {
