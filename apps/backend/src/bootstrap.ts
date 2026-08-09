@@ -8,7 +8,11 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 function corsOrigins(): string[] | boolean {
   const raw = process.env.CORS_ORIGIN?.trim();
   if (!raw) return true;
-  return raw.split(',').map((o) => o.trim()).filter(Boolean);
+  // Browsers send Origin without a trailing slash; strip it from env too.
+  return raw
+    .split(',')
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean);
 }
 
 export async function createApp(): Promise<INestApplication> {
